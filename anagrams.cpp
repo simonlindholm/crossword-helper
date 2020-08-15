@@ -31,7 +31,6 @@ struct SmallPtr {
 	SmallPtr(uint32_t offset) : offset(offset) {}
 	T* get(Arena& base);
 	const T* get(Arena& base) const;
-	static SmallPtr wild() { return SmallPtr((uint32_t) -1); }
 };
 
 template<class T>
@@ -92,23 +91,22 @@ const T* SmallPtr<T>::get(Arena& base) const {
 }
 
 struct Trie {
-	// If subCount == LEAF, there are no strings in this part of the trie.
-	// If subCount & LEAF but (subCount & ~LEAF) != 0, subs represents a list
-	// of Word's, and 'leaf()' is a NOCHAR-terminated string with the characters
-	// that make up the words in that list, sorted.
-	// If !(subCount & LEAF), subs is a list of Trie's.
+	// If isLeaf(), subs() represents a list of Word's of size count(),
+	// otherwise it is a list of Trie's.
+	// If isLeaf() && !isEmpty(), 'leaf()' is a NOCHAR-terminated string with
+	// the characters that make up the words in the leaf, sorted.
 	constexpr static int LEAF = 1 << 30;
 	int subCount;
-	SmallPtr<uint32_t> subs;
 	bool isEmpty() const { return subCount == LEAF; }
 	bool isLeaf() const { return subCount & LEAF; }
 	int count() const { return subCount & ~LEAF; }
+	const uint32_t* subs() const { return (const uint32_t*)this + 1; }
 	const char* leaf() const {
-		return (const char*) this + ALIGN4(sizeof(Trie));
+		return (const char*) this + 4 + 4 * this->count();
 	}
 };
 
-// 70 MB, && occ[i] > 0 -> 68 MB, alphabetical -> 56 MB, max -> 47 MB, ideal ~ 15 MB
+// 42 MB, ideal ~ 15 MB
 struct DS {
 	Arena arena;
 	SmallPtr<Trie> trie;
@@ -187,13 +185,12 @@ SmallPtr<Trie> buildTrie(Arena& arena, vector<pair<string, vector<Word>>>& words
 		StackPtr<Trie> ret = arena.alloc<Trie>();
 		string& s = words[0].first;
 		auto& ws = words[0].second;
+		StackPtr<uint32_t> leafWords = arena.allocArray<uint32_t>(ws.size());
 		StackPtr<char> after = arena.allocArray<char>(s.size() + 1);
 		memcpy(&after[0], s.c_str(), s.size());
 		after[s.size()] = NOCHAR;
 		int subCount = (int) ws.size();
 		ret->subCount = subCount | Trie::LEAF;
-		StackPtr<uint32_t> leafWords = arena.allocArray<uint32_t>(ws.size());
-		ret->subs = leafWords.inner;
 		for (int i = 0; i < subCount; i++) {
 			leafWords[i] = ws[i].index;
 		}
@@ -219,7 +216,6 @@ SmallPtr<Trie> buildTrie(Arena& arena, vector<pair<string, vector<Word>>>& words
 		ret->subCount = subCount;
 		assert(subCount != 0);
 		StackPtr<uint32_t> subs = arena.allocArray<uint32_t>(subwords.size());
-		ret->subs = subs.inner;
 
 		for (int i = 0; i < subCount; i++) {
 			auto& sub = subwords[i];
@@ -261,7 +257,6 @@ DS buildDS(string filename) {
 	vector<pair<string, vector<Word>>> words(all(lookup));
 	StackPtr<Trie> nullTrie = arena.alloc<Trie>();
 	nullTrie->subCount = Trie::LEAF;
-	nullTrie->subs = SmallPtr<uint32_t>::wild();
 	SmallPtr<Trie> trie = buildTrie(arena, words, nullTrie.inner, 0);
 	assert(!trie.get(arena)->isEmpty());
 	StackPtr<char> arenaWl = arena.allocArray<char>(wordlist.size());
@@ -292,9 +287,8 @@ void DS::_rec(vector<StackPtr<Trie>>& iters, vector<Word>& sentence, DS::Callbac
 		assert(t->isLeaf());
 		int sc = t->count();
 		assert(sc != 0);
-		StackPtr<uint32_t> subs{this->arena, t->subs};
 		for (int i = loopFrom; i < sc; i++) {
-			sentence.push_back(Word{subs[i]});
+			sentence.push_back(Word{t->subs()[i]});
 			int nextFrom = 0;
 			if (at + 1 != iters.size() && t.inner == iters[at + 1].inner) {
 				// Enforce sorted output order
@@ -322,9 +316,8 @@ void DS::_rec2(const FreqCount& wFreqCount, int at, vector<StackPtr<Trie>>& iter
 		this->_rec2(wFreqCount, at, iters, leafFreqCounts, cb, at2 + 1, freq, maxFreq, 0);
 	} else {
 		int mf = t->count() - 1;
-		StackPtr<uint32_t> subs{this->arena, t->subs};
 		for (int f = loopFrom; f <= min(freq, mf); f++) {
-			StackPtr<Trie> nt{this->arena, SmallPtr<Trie>(subs[f])};
+			StackPtr<Trie> nt{this->arena, SmallPtr<Trie>(t->subs()[f])};
 			if (nt->isEmpty()) continue;
 			if (nt->isLeaf()) {
 				setFreqCount(nt, leafFreqCounts[at2]);
