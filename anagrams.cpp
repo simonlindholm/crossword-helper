@@ -34,6 +34,11 @@ struct SmallPtr {
 	static SmallPtr wild() { return SmallPtr((uint32_t) -1); }
 };
 
+template<class T>
+bool operator==(SmallPtr<T> a, SmallPtr<T> b) {
+	return a.offset == b.offset;
+}
+
 struct Arena {
 	vector<char> mem;
 	Arena() {}
@@ -116,9 +121,9 @@ struct DS {
 
 	void _findAnagrams(const FreqCount& wFreqCount, int at, vector<StackPtr<Trie>>& iters, FreqCount* leafFreqCounts, DS::Callback cb) const;
 
-	void _rec(vector<StackPtr<Trie>>& iters, vector<Word>& sentence, Callback cb) const;
+	void _rec(vector<StackPtr<Trie>>& iters, vector<Word>& sentence, Callback cb, int loopFrom) const;
 
-	void _rec2(const FreqCount& wFreqCount, int at, vector<StackPtr<Trie>>& iters, FreqCount* leafFreqCounts, Callback cb, size_t at2, int freq, int maxFreq) const;
+	void _rec2(const FreqCount& wFreqCount, int at, vector<StackPtr<Trie>>& iters, FreqCount* leafFreqCounts, Callback cb, size_t at2, int freq, int maxFreq, int loopFrom) const;
 };
 
 string internalForm(const string& input) {
@@ -277,24 +282,30 @@ void DS::findAnagrams(const string& word, int numWords, DS::Callback cb) const {
 	_findAnagrams(wFreqCount, 0, iters, leafFreqCounts.data(), cb);
 }
 
-void DS::_rec(vector<StackPtr<Trie>>& iters, vector<Word>& sentence, DS::Callback cb) const {
+void DS::_rec(vector<StackPtr<Trie>>& iters, vector<Word>& sentence, DS::Callback cb, int loopFrom) const {
 	if (sentence.size() == iters.size()) {
 		cb(sentence);
 	} else {
-		StackPtr<Trie> t = iters[sentence.size()];
+		size_t at = sentence.size();
+		StackPtr<Trie> t = iters[at];
 		assert(t->isLeaf());
 		int sc = t->count();
 		assert(sc != 0);
 		StackPtr<uint32_t> subs{this->arena, t->subs};
-		for (int i = 0; i < sc; i++) {
+		for (int i = loopFrom; i < sc; i++) {
 			sentence.push_back(Word{subs[i]});
-			_rec(iters, sentence, cb);
+			int nextFrom = 0;
+			if (at + 1 != iters.size() && t.inner == iters[at + 1].inner) {
+				// Enforce sorted output order
+				nextFrom = i;
+			}
+			_rec(iters, sentence, cb, nextFrom);
 			sentence.pop_back();
 		}
 	}
 }
 
-void DS::_rec2(const FreqCount& wFreqCount, int at, vector<StackPtr<Trie>>& iters, FreqCount* leafFreqCounts, DS::Callback cb, size_t at2, int freq, int maxFreq) const {
+void DS::_rec2(const FreqCount& wFreqCount, int at, vector<StackPtr<Trie>>& iters, FreqCount* leafFreqCounts, DS::Callback cb, size_t at2, int freq, int maxFreq, int loopFrom) const {
 	// freq: remaining frequency to distribute
 	// maxFreq: how much more frequency we can distribute over the rest of the iterators
 	// (both counts ignore leaf nodes)
@@ -307,18 +318,23 @@ void DS::_rec2(const FreqCount& wFreqCount, int at, vector<StackPtr<Trie>>& iter
 	}
 	StackPtr<Trie> t = iters[at2];
 	if (t->isLeaf()) {
-		this->_rec2(wFreqCount, at, iters, leafFreqCounts, cb, at2 + 1, freq, maxFreq);
+		this->_rec2(wFreqCount, at, iters, leafFreqCounts, cb, at2 + 1, freq, maxFreq, 0);
 	} else {
 		int mf = t->count() - 1;
 		StackPtr<uint32_t> subs{this->arena, t->subs};
-		for (int f = 0; f <= min(freq, mf); f++) {
+		for (int f = loopFrom; f <= min(freq, mf); f++) {
 			StackPtr<Trie> nt{this->arena, SmallPtr<Trie>(subs[f])};
 			if (nt->isEmpty()) continue;
 			if (nt->isLeaf()) {
 				setFreqCount(nt, leafFreqCounts[at2]);
 			}
 			iters[at2] = nt;
-			this->_rec2(wFreqCount, at, iters, leafFreqCounts, cb, at2 + 1, freq - f, maxFreq - mf);
+			int nextFrom = 0;
+			if (at2 + 1 != iters.size() && t.inner == iters[at2 + 1].inner) {
+				// Enforce sorted output order
+				nextFrom = f;
+			}
+			this->_rec2(wFreqCount, at, iters, leafFreqCounts, cb, at2 + 1, freq - f, maxFreq - mf, nextFrom);
 		}
 		iters[at2] = t;
 	}
@@ -327,7 +343,7 @@ void DS::_rec2(const FreqCount& wFreqCount, int at, vector<StackPtr<Trie>>& iter
 void DS::_findAnagrams(const FreqCount& wFreqCount, int at, vector<StackPtr<Trie>>& iters, FreqCount* leafFreqCounts, DS::Callback cb) const {
 	if (at == ALPHA) {
 		vector<Word> sentence;
-		this->_rec(iters, sentence, cb);
+		this->_rec(iters, sentence, cb, 0);
 		return;
 	}
 	assert(at != ALPHA);
@@ -342,7 +358,7 @@ void DS::_findAnagrams(const FreqCount& wFreqCount, int at, vector<StackPtr<Trie
 	if (freq < 0 || freq > maxFreq) {
 		return;
 	}
-	this->_rec2(wFreqCount, at + 1, iters, leafFreqCounts, cb, 0, freq, maxFreq);
+	this->_rec2(wFreqCount, at + 1, iters, leafFreqCounts, cb, 0, freq, maxFreq, 0);
 }
 
 void writeDS(DS& ds, const string& filename) {
@@ -451,9 +467,9 @@ int main(int argc, char** argv) {
 		int count = 0;
 		try {
 			for (int numWords = 1; count < limit && numWords <= maxWords; numWords++) {
-				ds.findAnagrams(word, numWords, [&](const vector<Word>& sentence) -> void {
-					if (!is_sorted(sentence.begin(), sentence.end()))
-						return;
+				ds.findAnagrams(word, numWords, [&](const vector<Word>& sentence_) -> void {
+					vector<Word> sentence = sentence_;
+					sort(sentence.begin(), sentence.end());
 					StackPtr<char> wordlist{ds.arena, ds.wordlist};
 					bool first = true;
 					for (Word w : sentence) {
