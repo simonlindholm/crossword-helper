@@ -39,6 +39,20 @@ bool operator==(SmallPtr<T> a, SmallPtr<T> b) {
 	return a.offset == b.offset;
 }
 
+template<class T>
+struct StackPtr {
+	const Arena* arena;
+	SmallPtr<T> inner;
+	StackPtr(const Arena& arena, SmallPtr<T> inner) : arena(&arena), inner(inner) {}
+	T* operator->() { return inner.get((Arena&)*arena); }
+	T& operator[](size_t i) { return this->operator->()[i]; }
+	T& operator*() { return (*this)[0]; }
+
+	const T* operator->() const { return inner.get(*arena); }
+	const T& operator[](size_t i) const { return this->operator->()[i]; }
+	const T& operator*() const { return (*this)[0]; }
+};
+
 struct Arena {
 	vector<char> mem;
 	Arena() {}
@@ -58,27 +72,13 @@ struct Arena {
 		return (uint32_t) ret;
 	}
 	template<class T>
-	SmallPtr<T> alloc() {
-		return SmallPtr<T>(rawAlloc(sizeof(T)));
+	StackPtr<T> alloc() {
+		return StackPtr<T>(*this, rawAlloc(sizeof(T)));
 	}
 	template<class T>
-	SmallPtr<T> allocArray(size_t size) {
-		return SmallPtr<T>(rawAlloc(sizeof(T) * size));
+	StackPtr<T> allocArray(size_t size) {
+		return StackPtr<T>(*this, rawAlloc(sizeof(T) * size));
 	}
-};
-
-template<class T>
-struct StackPtr {
-	const Arena* arena;
-	SmallPtr<T> inner;
-	StackPtr(const Arena& arena, SmallPtr<T> inner) : arena(&arena), inner(inner) {}
-	T* operator->() { return inner.get((Arena&)*arena); }
-	T& operator[](size_t i) { return this->operator->()[i]; }
-	T& operator*() { return (*this)[0]; }
-
-	const T* operator->() const { return inner.get(*arena); }
-	const T& operator[](size_t i) const { return this->operator->()[i]; }
-	const T& operator*() const { return (*this)[0]; }
 };
 
 template<class T>
@@ -180,22 +180,19 @@ string externalForm(const string& input) {
 	return out;
 }
 
-SmallPtr<Trie> buildTrie(Arena& arena, vector<pair<string, vector<Word>>>& words, int which) {
+SmallPtr<Trie> buildTrie(Arena& arena, vector<pair<string, vector<Word>>>& words, SmallPtr<Trie> nullTrie, int which) {
 	if (words.size() == 0) {
-		StackPtr<Trie> ret{arena, arena.alloc<Trie>()};
-		ret->subCount = Trie::LEAF;
-		ret->subs = SmallPtr<uint32_t>::wild();
-		return ret.inner;
+		return nullTrie;
 	} else if (words.size() == 1) {
-		StackPtr<Trie> ret{arena, arena.alloc<Trie>()};
+		StackPtr<Trie> ret = arena.alloc<Trie>();
 		string& s = words[0].first;
 		auto& ws = words[0].second;
-		StackPtr<char> after{arena, arena.allocArray<char>(s.size() + 1)};
+		StackPtr<char> after = arena.allocArray<char>(s.size() + 1);
 		memcpy(&after[0], s.c_str(), s.size());
 		after[s.size()] = NOCHAR;
 		int subCount = (int) ws.size();
 		ret->subCount = subCount | Trie::LEAF;
-		StackPtr<uint32_t> leafWords{arena, arena.allocArray<uint32_t>(ws.size())};
+		StackPtr<uint32_t> leafWords = arena.allocArray<uint32_t>(ws.size());
 		ret->subs = leafWords.inner;
 		for (int i = 0; i < subCount; i++) {
 			leafWords[i] = ws[i].index;
@@ -203,7 +200,7 @@ SmallPtr<Trie> buildTrie(Arena& arena, vector<pair<string, vector<Word>>>& words
 		return ret.inner;
 	} else {
 		assert(which != ALPHA);
-		StackPtr<Trie> ret{arena, arena.alloc<Trie>()};
+		StackPtr<Trie> ret = arena.alloc<Trie>();
 		vector<vector<pair<string, vector<Word>>>> subwords;
 		for (auto& pa : words) {
 			int freq = 0;
@@ -221,12 +218,12 @@ SmallPtr<Trie> buildTrie(Arena& arena, vector<pair<string, vector<Word>>>& words
 		int subCount = (int) subwords.size();
 		ret->subCount = subCount;
 		assert(subCount != 0);
-		StackPtr<uint32_t> subs{arena, arena.allocArray<uint32_t>(subwords.size())};
+		StackPtr<uint32_t> subs = arena.allocArray<uint32_t>(subwords.size());
 		ret->subs = subs.inner;
 
 		for (int i = 0; i < subCount; i++) {
 			auto& sub = subwords[i];
-			SmallPtr<Trie> subTrie = buildTrie(arena, sub, which + 1);
+			SmallPtr<Trie> subTrie = buildTrie(arena, sub, nullTrie, which + 1);
 			subs[i] = subTrie.offset;
 		}
 		return ret.inner;
@@ -262,8 +259,12 @@ DS buildDS(string filename) {
 		lookup[word].push_back(w);
 	}
 	vector<pair<string, vector<Word>>> words(all(lookup));
-	SmallPtr<Trie> trie = buildTrie(arena, words, 0);
-	StackPtr<char> arenaWl{arena, arena.allocArray<char>(wordlist.size())};
+	StackPtr<Trie> nullTrie = arena.alloc<Trie>();
+	nullTrie->subCount = Trie::LEAF;
+	nullTrie->subs = SmallPtr<uint32_t>::wild();
+	SmallPtr<Trie> trie = buildTrie(arena, words, nullTrie.inner, 0);
+	assert(!trie.get(arena)->isEmpty());
+	StackPtr<char> arenaWl = arena.allocArray<char>(wordlist.size());
 	memcpy(&*arenaWl, wordlist.data(), wordlist.size());
 	return {move(arena), trie, arenaWl.inner};
 }
