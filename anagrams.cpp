@@ -106,9 +106,15 @@ struct Trie {
 	}
 };
 
-// 42 MB, ideal ~ 15 MB
 struct DS {
 	Arena arena;
+
+	// Lookup tables for letter normalization. The trie is based on letter
+	// frequency in letter order 0, 1, ... and some letter orders are
+	// (marginally) better than others, both wrt space and runtime.
+	array<int, ALPHA> sortedLetters;
+	array<int, ALPHA> letterOrder;
+
 	SmallPtr<Trie> trie;
 
 	// A chunk of null-terminated UTF-8 strings, pointed into by Word.index.
@@ -124,13 +130,13 @@ struct DS {
 	void _rec2(const FreqCount& wFreqCount, int at, vector<StackPtr<Trie>>& iters, FreqCount* leafFreqCounts, Callback cb, size_t at2, int freq, int maxFreq, int loopFrom) const;
 };
 
-string internalForm(const string& input) {
+string internalForm(const string& input, const array<int, ALPHA>& letterOrder) {
 	string out;
 	for (size_t i = 0; i < input.size(); i++) {
 		char c = input[i];
-		char e = NOCHAR;
+		int e = -1;
 		if ('a' <= c && c <= 'z')
-			e = (char)(c - 'a');
+			e = c - 'a';
 		else if (c == (char)0xc3 && i + 1 != input.size()) {
 			i++;
 			char d = input[i];
@@ -144,21 +150,23 @@ string internalForm(const string& input) {
 			e = 30;
 		else if (c == '4')
 			e = 31;
-		if (e == NOCHAR) {
+		if (e == -1) {
 			cerr << "bad word: " << input << endl;
 			exit(1);
 		}
-		out.push_back(e);
+		out.push_back((char)letterOrder[e]);
 	}
 	sort(all(out));
 	return out;
 }
 
-string externalForm(const string& input) {
+string externalForm(const string& input, const array<int, ALPHA>& sortedLetters) {
 	string out;
 	for (size_t i = 0; i < input.size(); i++) {
-		char c = input[i], d;
-		assert(c >= 0 && c != NOCHAR);
+		int c = input[i];
+		assert(0 <= c && c < ALPHA);
+		c = sortedLetters[c];
+		char d;
 		if (c < 26) d = (char)('a' + c);
 		else if (c < 29) {
 			out += '\xc3';
@@ -170,7 +178,7 @@ string externalForm(const string& input) {
 		else if (c == 30) d = '3';
 		else if (c == 31) d = '4';
 		else {
-			cerr << "Bad character " << (int) c << endl;
+			cerr << "Bad character " << c << endl;
 			exit(1);
 		}
 		out += d;
@@ -243,9 +251,14 @@ DS buildDS(string filename) {
 	assert(fin);
 	string line;
 	map<string, vector<Word>> lookup;
+	array<int, ALPHA> freq{};
+	array<int, ALPHA> letterOrder{};
+	iota(letterOrder.begin(), letterOrder.end(), 0);
 	while (getline(fin, line)) {
 		size_t ind = line.find(' ');
-		string word = internalForm(line.substr(0, ind));
+		string word = internalForm(line.substr(0, ind), letterOrder);
+		for (int c : word)
+			freq[c]++;
 		if (ind != string::npos) {
 			line = line.substr(ind + 1);
 		}
@@ -254,18 +267,37 @@ DS buildDS(string filename) {
 		wordlist += '\0';
 		lookup[word].push_back(w);
 	}
-	vector<pair<string, vector<Word>>> words(all(lookup));
+
+	// Come up with a reasonable letter traversal order. Empirically this
+	// seems to do well, though it's somewhat unclear why.
+	array<int, ALPHA> sortedLetters{};
+	iota(sortedLetters.begin(), sortedLetters.end(), 0);
+	sort(sortedLetters.begin(), sortedLetters.end(), [&](int a, int b) {
+		return freq[a] < freq[b];
+	});
+	static_assert(ALPHA >= 20);
+	reverse(sortedLetters.begin() + 20, sortedLetters.end());
+	for (int i = 0; i < ALPHA; i++) {
+		letterOrder[sortedLetters[i]] = i;
+	}
+
+	vector<pair<string, vector<Word>>> words(lookup.begin(), lookup.end());
+	for (auto& pa : words) {
+		for (char& c : pa.first)
+			c = (char) letterOrder[(int) c];
+	}
+
 	StackPtr<Trie> nullTrie = arena.alloc<Trie>();
 	nullTrie->subCount = Trie::LEAF;
 	SmallPtr<Trie> trie = buildTrie(arena, words, nullTrie.inner, 0);
 	assert(!trie.get(arena)->isEmpty());
 	StackPtr<char> arenaWl = arena.allocArray<char>(wordlist.size());
 	memcpy(&*arenaWl, wordlist.data(), wordlist.size());
-	return {move(arena), trie, arenaWl.inner};
+	return {move(arena), sortedLetters, letterOrder, trie, arenaWl.inner};
 }
 
 void DS::findAnagrams(const string& word, int numWords, DS::Callback cb) const {
-	string w = internalForm(word);
+	string w = internalForm(word, this->letterOrder);
 	FreqCount wFreqCount{};
 	for (int c : w) {
 		assert(0 <= c && c < ALPHA);
@@ -366,6 +398,8 @@ void writeDS(DS& ds, const string& filename) {
 			ds.wordlist.offset,
 		};
 		file.write((const char*) &header[0], sizeof(header));
+		file.write((const char*) &ds.sortedLetters[0], sizeof(ds.sortedLetters));
+		file.write((const char*) &ds.letterOrder[0], sizeof(ds.letterOrder));
 		file.write(ds.arena.mem.data(), ds.arena.size());
 	}
 	catch (const ios_base::failure& exc) {
@@ -389,9 +423,14 @@ DS readDS(const string& filename) {
 			cerr << "Bad file format." << endl;
 			exit(1);
 		}
+		array<int, ALPHA> sortedLetters;
+		array<int, ALPHA> letterOrder;
+		file.read((char*) &sortedLetters[0], sizeof(sortedLetters));
+		file.read((char*) &letterOrder[0], sizeof(letterOrder));
 		vector<char> mem(arenaSize);
 		file.read(mem.data(), arenaSize);
-		return DS{Arena(move(mem)), SmallPtr<Trie>(triePtr), SmallPtr<char>(wordlistPtr)};
+		return DS{Arena(move(mem)), sortedLetters, letterOrder,
+			SmallPtr<Trie>(triePtr), SmallPtr<char>(wordlistPtr)};
 	}
 	catch (const ios_base::failure& exc) {
 		cerr << "Failed to read " << filename << ": " << exc.what() << endl;
