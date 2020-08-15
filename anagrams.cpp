@@ -480,8 +480,10 @@ int main(int argc, char** argv) {
 					}
 					cout << endl;
 					count++;
-					if (count == limit)
+					if (count == limit) {
+						cout << "<reached limit of " << limit << ", pass --limit to raise>" << endl;
 						throw false;
+					}
 				});
 			}
 		}
@@ -494,9 +496,12 @@ int main(int argc, char** argv) {
 		}
 	} else {
 		for (;;) {
+			cout << "> ";
 			string word;
 			cin >> word;
+			if (!cin || word.empty()) break;
 			run(word);
+			cout << endl;
 		}
 	}
 }
