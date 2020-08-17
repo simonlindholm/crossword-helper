@@ -132,19 +132,21 @@ struct DS {
 	void _rec2(const FreqCount& wFreqCount, int at, vector<StackPtr<Trie>>& iters, FreqCount* leafFreqCounts, Callback cb, size_t at2, int freq, int maxFreq, int loopFrom) const;
 };
 
-string internalForm(const string& input, const array<int, ALPHA>& letterOrder) {
+string internalForm(const string& input, const array<int, ALPHA>& letterOrder, bool ignoreBad) {
 	string out;
 	for (size_t i = 0; i < input.size(); i++) {
 		char c = input[i];
 		int e = -1;
 		if ('a' <= c && c <= 'z')
 			e = c - 'a';
+		else if ('A' <= c && c <= 'Z')
+			e = c - 'A';
 		else if (c == (char)0xc3 && i + 1 != input.size()) {
 			i++;
 			char d = input[i];
-			if (d == '\xa5') e = 26;
-			else if (d == '\xa4') e = 27;
-			else if (d == '\xb6') e = 28;
+			if (d == '\xa5' || d == '\x85') e = 26;
+			else if (d == '\xa4' || d == '\x84') e = 27;
+			else if (d == '\xb6' || d == '\x96') e = 28;
 		}
 		else if (c == '1')
 			e = 29;
@@ -152,11 +154,13 @@ string internalForm(const string& input, const array<int, ALPHA>& letterOrder) {
 			e = 30;
 		else if (c == '4')
 			e = 31;
-		if (e == -1) {
+		if (e != -1) {
+			out.push_back((char)letterOrder[e]);
+		}
+		else if (!ignoreBad) {
 			cerr << "bad word: " << input << endl;
 			exit(1);
 		}
-		out.push_back((char)letterOrder[e]);
 	}
 	sort(out.begin(), out.end());
 	return out;
@@ -279,7 +283,7 @@ DS buildDS(const string& dictFilename, const string& freqFilename) {
 	iota(letterOrder.begin(), letterOrder.end(), 0);
 	while (getline(fin, line)) {
 		size_t ind = line.find(' ');
-		string word = internalForm(line.substr(0, ind), letterOrder);
+		string word = internalForm(line.substr(0, ind), letterOrder, false);
 		for (int c : word)
 			letterFreq[c]++;
 		if (ind != string::npos) {
@@ -325,7 +329,7 @@ DS buildDS(const string& dictFilename, const string& freqFilename) {
 }
 
 void DS::findAnagrams(const string& word, int numWords, DS::Callback cb) const {
-	string w = internalForm(word, this->letterOrder);
+	string w = internalForm(word, this->letterOrder, true);
 	FreqCount wFreqCount{};
 	for (int c : w) {
 		assert(0 <= c && c < ALPHA);
