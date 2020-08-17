@@ -1,14 +1,6 @@
 #include <bits/stdc++.h>
 using namespace std;
 
-#define rep(i, from, to) for (int i = from; i < (to); ++i)
-#define trav(a, x) for (auto& a : x)
-#define all(x) x.begin(), x.end()
-#define sz(x) (int)(x).size()
-typedef long long ll;
-typedef pair<int, int> pii;
-typedef vector<int> vi;
-
 constexpr int ALPHA = 32;
 constexpr char NOCHAR = (char)-1;
 constexpr int FORMAT_VERSION = 0x10010001;
@@ -156,7 +148,7 @@ string internalForm(const string& input, const array<int, ALPHA>& letterOrder) {
 		}
 		out.push_back((char)letterOrder[e]);
 	}
-	sort(all(out));
+	sort(out.begin(), out.end());
 	return out;
 }
 
@@ -212,7 +204,7 @@ SmallPtr<Trie> buildTrie(Arena& arena, vector<pair<string, vector<Word>>>& words
 			for (char c : pa.first) {
 				if (c == which) freq++;
 			}
-			while (freq >= sz(subwords)) {
+			while (freq >= (int)subwords.size()) {
 				subwords.emplace_back();
 			}
 			subwords[freq].push_back(move(pa));
@@ -244,25 +236,51 @@ void setFreqCount(StackPtr<Trie> t, FreqCount& freq) {
 	}
 }
 
-DS buildDS(string filename) {
+map<string, int> readFreqs(const string& filename) {
+	ifstream fin(filename);
+	assert(fin);
+	string line, word;
+	map<string, int> freqs;
+	while (getline(fin, line)) {
+		size_t ind = line.find('\t');
+		assert(ind != string::npos);
+		word = line.substr(0, ind);
+		for (char& c : word)
+			c = (char)tolower(c);
+		ind = line.rfind('\t');
+		assert(ind > 0);
+		size_t ind2 = line.rfind('\t', ind - 1);
+		assert(ind2 > 0);
+		freqs[word] += atoi(line.substr(ind2, ind - ind2).c_str());
+	}
+	return freqs;
+}
+
+DS buildDS(const string& dictFilename, const string& freqFilename) {
+	map<string, int> freqs = readFreqs(freqFilename);
 	Arena arena;
 	string wordlist;
-	ifstream fin(filename);
+	ifstream fin(dictFilename);
 	assert(fin);
 	string line;
 	map<string, vector<Word>> lookup;
-	array<int, ALPHA> freq{};
+	array<int, ALPHA> letterFreq{};
 	array<int, ALPHA> letterOrder{};
 	iota(letterOrder.begin(), letterOrder.end(), 0);
 	while (getline(fin, line)) {
 		size_t ind = line.find(' ');
 		string word = internalForm(line.substr(0, ind), letterOrder);
 		for (int c : word)
-			freq[c]++;
+			letterFreq[c]++;
 		if (ind != string::npos) {
 			line = line.substr(ind + 1);
 		}
+		auto it = freqs.find(line);
+		int freq = (it != freqs.end() ? it->second : 0);
+		if (freq > 0xffff) freq = 0xffff;
 		Word w{(uint32_t) wordlist.size()};
+		wordlist += (char)(freq >> 8);
+		wordlist += (char)(freq & 255);
 		wordlist += line;
 		wordlist += '\0';
 		lookup[word].push_back(w);
@@ -273,7 +291,7 @@ DS buildDS(string filename) {
 	array<int, ALPHA> sortedLetters{};
 	iota(sortedLetters.begin(), sortedLetters.end(), 0);
 	sort(sortedLetters.begin(), sortedLetters.end(), [&](int a, int b) {
-		return freq[a] < freq[b];
+		return letterFreq[a] < letterFreq[b];
 	});
 	static_assert(ALPHA >= 20);
 	reverse(sortedLetters.begin() + 20, sortedLetters.end());
@@ -440,19 +458,23 @@ DS readDS(const string& filename) {
 
 void help(const char* program) {
 	cout << "Usage:" << endl;
-	cout << program << " --help | --build <dict.txt> | [--limit <N>] [--max-words <N>] [--file <file.dat>] [<word>...]" << endl;
+	cout << program << " --help | --build <dict.txt> <stats.txt> |"
+		" [--limit <N>]"
+		" [--max-words <N>]"
+		" [--file <file.bin>]"
+		" [<word>...]"
+		<< endl;
 	exit(0);
 }
 
 int main(int argc, char** argv) {
 	int limit = 1000, maxWords = 1;
-	string dsFilename = "dict.dat";
-	string buildFilename;
+	string dsFilename = "dict.bin";
 	bool noMoreFlags = false;
 	bool build = false;
 	vector<string> nonflags;
 
-	rep(i,1,argc) {
+	for (int i = 1; i < argc; i++) {
 		string a = argv[i];
 		auto next = [&]() -> string {
 			if (i + 1 == argc) {
@@ -469,7 +491,6 @@ int main(int argc, char** argv) {
 				help(argv[0]);
 			} else if (a == "--build") {
 				build = true;
-				buildFilename = next();
 			} else if (a == "--limit") {
 				string x = next();
 				limit = atoi(x.c_str());
@@ -488,7 +509,11 @@ int main(int argc, char** argv) {
 	}
 
 	if (build) {
-		DS ds = buildDS(buildFilename);
+		if (nonflags.size() != 2) {
+			cerr << "Invalid arguments." << endl;
+			return 1;
+		}
+		DS ds = buildDS(nonflags[0], nonflags[1]);
 		cout << "ds size: " << ds.arena.size() << endl;
 		writeDS(ds, dsFilename);
 		exit(0);
@@ -500,24 +525,33 @@ int main(int argc, char** argv) {
 		int count = 0;
 		try {
 			for (int numWords = 1; count < limit && numWords <= maxWords; numWords++) {
+				vector<pair<double, string>> sentences;
 				ds.findAnagrams(word, numWords, [&](const vector<Word>& sentence_) -> void {
 					vector<Word> sentence = sentence_;
 					sort(sentence.begin(), sentence.end());
 					StackPtr<char> wordlist{ds.arena, ds.wordlist};
 					bool first = true;
+					double totFreq = 1;
+					string output;
 					for (Word w : sentence) {
 						if (first) first = false;
-						else cout << ' ';
+						else output += ' ';
 						const char* cw = &wordlist[w.index];
-						cout << cw;
+						int freq = (unsigned char)cw[0] * 256 + (unsigned char)cw[1];
+						totFreq *= freq + 1;
+						output += cw + 2;
 					}
-					cout << endl;
+					sentences.emplace_back(totFreq, output);
+				});
+				sort(sentences.begin(), sentences.end(), greater<void>());
+				for (auto& pa : sentences) {
+					cout << pa.second << endl;
 					count++;
 					if (count == limit) {
 						cout << "<reached limit of " << limit << ", pass --limit to raise>" << endl;
 						throw false;
 					}
-				});
+				}
 			}
 		}
 		catch (bool) {}
