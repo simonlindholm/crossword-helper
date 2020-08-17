@@ -1,4 +1,14 @@
-#include <bits/stdc++.h>
+#include <algorithm>
+#include <array>
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <map>
+#include <cstdint>
+#include <cassert>
+#include <cstring>
+#include <functional>
+#include <numeric>
 using namespace std;
 
 constexpr int ALPHA = 32;
@@ -293,7 +303,7 @@ DS buildDS(const string& dictFilename, const string& freqFilename) {
 	sort(sortedLetters.begin(), sortedLetters.end(), [&](int a, int b) {
 		return letterFreq[a] < letterFreq[b];
 	});
-	static_assert(ALPHA >= 20);
+	static_assert(ALPHA >= 20, "");
 	reverse(sortedLetters.begin() + 20, sortedLetters.end());
 	for (int i = 0; i < ALPHA; i++) {
 		letterOrder[sortedLetters[i]] = i;
