@@ -9,6 +9,14 @@
 #include <cstring>
 #include <functional>
 #include <numeric>
+#ifdef MMAP
+#include <sys/mman.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <err.h>
+#include <unistd.h>
+#endif
 using namespace std;
 
 constexpr int ALPHA = 32;
@@ -25,7 +33,7 @@ bool operator<(Word a, Word b) {
 	return a.index < b.index;
 }
 
-struct Arena;
+class Arena;
 
 template<class T>
 struct SmallPtr {
@@ -54,31 +62,75 @@ struct StackPtr {
 	const T& operator*() const { return (*this)[0]; }
 };
 
-struct Arena {
-	vector<char> mem;
-	Arena() {}
-	Arena(vector<char>&& mem) : mem(move(mem)) {}
-	uint32_t size() const { return (uint32_t) mem.size(); }
-	char* base() { return mem.data(); }
-	const char* base() const { return mem.data(); }
+class Arena {
+private:
+	constexpr static uint32_t EXTERNAL = (uint32_t)-1;
+	constexpr static uint32_t LIM = (uint32_t)-4;
+	uint32_t capacity_;
+	uint32_t size_;
+	char* mem_;
+	function<void()> free_;
+
 	uint32_t rawAlloc(size_t size) {
-		size = ALIGN4(size);
-		uint32_t ret = this->size();
-		size_t newSize = size + ret;
-		assert(newSize <= (1U << 30) - 1 + (1U << 30));
-		if (newSize > mem.capacity()) {
-			mem.resize(mem.capacity() + newSize);
+		assert(this->capacity_ != EXTERNAL);
+		assert(size < LIM - this->size_);
+		uint32_t realSize = (uint32_t) ALIGN4(size);
+		uint32_t newSize = realSize + this->size_;
+		if (newSize > this->capacity_) {
+			assert(newSize < LIM - this->capacity_);
+			uint32_t newCap = this->capacity_ + newSize;
+			char* newMem = new char[newCap];
+			if (this->mem_ != nullptr) {
+				memcpy(newMem, mem_, this->size_);
+				delete[] this->mem_;
+			}
+			this->mem_ = newMem;
+			this->capacity_ = newCap;
 		}
-		mem.resize(newSize);
-		return (uint32_t) ret;
+		uint32_t ret = this->size_;
+		memset(this->mem_ + ret, 0, realSize);
+		this->size_ += realSize;
+		return ret;
 	}
+
+	static void noop() {}
+
+public:
+	Arena(): capacity_(0), size_(0), mem_(nullptr), free_(noop) {}
+	Arena(Arena&& other) :
+		capacity_(other.capacity_), size_(other.size_), mem_(other.mem_), free_(other.free_)
+	{
+		other.capacity_ = EXTERNAL;
+		other.size_ = 0;
+		other.mem_ = nullptr;
+	}
+	Arena(char* mem_, uint32_t size, function<void()> free)
+		: capacity_(EXTERNAL), size_(size), mem_(mem_), free_(free)
+	{}
+	~Arena() {
+		if (this->mem_ != nullptr) {
+			if (capacity_ == EXTERNAL) {
+				this->free_();
+			} else {
+				delete[] this->mem_;
+			}
+			this->mem_ = nullptr;
+		}
+	}
+	Arena(const Arena& other) = delete;
+	Arena& operator=(const Arena& other) = delete;
+
+	char* base() { return this->mem_; }
+	const char* base() const { return this->mem_; }
+	uint32_t size() const { return this->size_; }
+
 	template<class T>
 	StackPtr<T> alloc() {
-		return StackPtr<T>(*this, rawAlloc(sizeof(T)));
+		return StackPtr<T>(*this, this->rawAlloc(sizeof(T)));
 	}
 	template<class T>
 	StackPtr<T> allocArray(size_t size) {
-		return StackPtr<T>(*this, rawAlloc(sizeof(T) * size));
+		return StackPtr<T>(*this, this->rawAlloc(sizeof(T) * size));
 	}
 };
 
@@ -432,7 +484,7 @@ void writeDS(DS& ds, const string& filename) {
 		file.write((const char*) &header[0], sizeof(header));
 		file.write((const char*) &ds.sortedLetters[0], sizeof(ds.sortedLetters));
 		file.write((const char*) &ds.letterOrder[0], sizeof(ds.letterOrder));
-		file.write(ds.arena.mem.data(), ds.arena.size());
+		file.write(ds.arena.base(), ds.arena.size());
 	}
 	catch (const ios_base::failure& exc) {
 		cerr << "Failed to write " << filename << ": " << exc.what() << endl;
@@ -441,7 +493,61 @@ void writeDS(DS& ds, const string& filename) {
 }
 
 DS readDS(const string& filename) {
-	// TODO: mmap
+#ifdef MMAP
+	int fd = open(filename.c_str(), O_RDONLY, 0);
+	if (fd == -1)
+		err(1, "failed to open %s", filename.c_str());
+
+	struct stat sb;
+	fstat(fd, &sb);
+
+	size_t fileSize = sb.st_size;
+
+	char* mem = (char*) mmap(nullptr, fileSize, PROT_READ, MAP_SHARED, fd, 0);
+	if (mem == MAP_FAILED)
+		err(1, "failed to read %s", filename.c_str());
+
+	size_t filePos = 0;
+	auto tryRead = [&](void* dest, size_t size) {
+		if (size > fileSize - filePos) {
+			cerr << "Bad dictionary file format (truncated read)." << endl;
+			exit(1);
+		}
+		memcpy((char*) dest, mem + filePos, size);
+		filePos += size;
+	};
+
+	uint32_t header[4];
+	tryRead(header, sizeof(header));
+	uint32_t version = header[0];
+	uint32_t arenaSize = header[1];
+	uint32_t triePtr = header[2];
+	uint32_t wordlistPtr = header[3];
+	if (version != FORMAT_VERSION) {
+		cerr << "Bad dictionary file format." << endl;
+		exit(1);
+	}
+
+	array<int, ALPHA> sortedLetters;
+	array<int, ALPHA> letterOrder;
+	tryRead(&sortedLetters[0], sizeof(sortedLetters));
+	tryRead(&letterOrder[0], sizeof(letterOrder));
+
+	if (filePos + arenaSize > fileSize) {
+		cerr << "Bad dictionary file format (truncated read)." << endl;
+		exit(1);
+	}
+
+	Arena arena(mem + filePos, arenaSize, [fd, mem, fileSize]() {
+		munmap(mem, fileSize);
+		close(fd);
+	});
+
+	return DS{move(arena), sortedLetters, letterOrder,
+		SmallPtr<Trie>(triePtr), SmallPtr<char>(wordlistPtr)};
+
+#else
+
 	ifstream file(filename, ios::binary);
 	file.exceptions(ios::failbit | ios::badbit | ios::eofbit);
 	try {
@@ -452,22 +558,26 @@ DS readDS(const string& filename) {
 		uint32_t triePtr = header[2];
 		uint32_t wordlistPtr = header[3];
 		if (version != FORMAT_VERSION) {
-			cerr << "Bad file format." << endl;
+			cerr << "Bad dictionary file format." << endl;
 			exit(1);
 		}
 		array<int, ALPHA> sortedLetters;
 		array<int, ALPHA> letterOrder;
 		file.read((char*) &sortedLetters[0], sizeof(sortedLetters));
 		file.read((char*) &letterOrder[0], sizeof(letterOrder));
-		vector<char> mem(arenaSize);
-		file.read(mem.data(), arenaSize);
-		return DS{Arena(move(mem)), sortedLetters, letterOrder,
+		char *mem = new char[arenaSize];
+		Arena arena(mem, arenaSize, [mem]() {
+			delete[] mem;
+		});
+		file.read(mem, arenaSize);
+		return DS{move(arena), sortedLetters, letterOrder,
 			SmallPtr<Trie>(triePtr), SmallPtr<char>(wordlistPtr)};
 	}
 	catch (const ios_base::failure& exc) {
 		cerr << "Failed to read " << filename << ": " << exc.what() << endl;
 		exit(1);
 	}
+#endif
 }
 
 void help(const char* program) {
