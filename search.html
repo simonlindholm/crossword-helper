@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<meta charset=utf-8>
+<style>
+#cont1 {
+    float: left;
+}
+#results {
+    border: 1px solid black;
+    padding: 10px;
+    width: 200px;
+    height: 500px;
+    font: 15px monospace;
+    overflow: auto;
+}
+#history {
+    float: left;
+    font: 15px monospace;
+    padding: 10px;
+}
+input {
+    border: 1px solid black;
+    padding: 10px;
+    width: 200px;
+    font: 15px monospace;
+}
+.hist {
+    cursor: pointer;
+}
+</style>
+<script>
+const MAX_RESULTS = 1000;
+
+onload = () => {
+    var x = new XMLHttpRequest();
+    x.addEventListener("load", () => {
+        let dictionary = x.responseText;
+        let searchbox = document.getElementById("searchbox");
+        let history = document.getElementById("history");
+        searchbox.value = "";
+        searchbox.oninput = () => {
+            let resar = document.getElementById("results");
+            resar.textContent = "";
+            let filter = "^" + searchbox.value.toLowerCase().replace(/\*/g, ".*") + "$";
+            let i = 0;
+            let re;
+            try {
+                re = new RegExp(filter, "mg");
+            } catch(e) {
+                return;
+            }
+            for (let m of dictionary.matchAll(re)) {
+                let res = m[0];
+                if (i === MAX_RESULTS) {
+                    res = "Fler...";
+                }
+                let el = document.createElement("div");
+                el.className = "row";
+                el.textContent = res;
+                resar.appendChild(el);
+                if (i === MAX_RESULTS) {
+                    break;
+                }
+                i++;
+            }
+        };
+        searchbox.onkeydown = (e) => {
+            if (e.which === 13) {
+                let el = document.createElement("div");
+                el.className = "hist";
+                el.textContent = searchbox.value;
+                history.appendChild(el);
+            }
+        };
+        history.onclick = (e) => {
+            let el = e.target;
+            if (el.className === "hist") {
+                searchbox.value = el.textContent;
+                searchbox.oninput();
+            }
+        };
+    });
+    x.open("GET", "saol2.txt");
+    x.send();
+};
+</script>
+<div id="cont1">
+<input id="searchbox" autofocus>
+<div id="results"></div>
+</div>
+<div id="history"></div>
