@@ -40,7 +40,7 @@ onload = () => {
         searchbox.oninput = () => {
             let resar = document.getElementById("results");
             resar.textContent = "";
-            let filter = "^" + searchbox.value.toLowerCase().replace(/\*/g, ".*") + "$";
+            let filter = "^(?:" + searchbox.value.toLowerCase().replace(/\*/g, ".*") + ")$";
             let i = 0;
             let re;
             try {
