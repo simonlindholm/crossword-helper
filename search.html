@@ -10,7 +10,8 @@
     width: 200px;
     height: 500px;
     font: 15px monospace;
-    overflow: auto;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 #history {
     float: left;
@@ -24,7 +25,9 @@ input {
     font: 15px monospace;
 }
 .hist {
-    cursor: pointer;
+    display: block;
+    color: inherit;
+    text-decoration: none;
 }
 </style>
 <script>
@@ -40,7 +43,7 @@ onload = () => {
         searchbox.oninput = () => {
             let resar = document.getElementById("results");
             resar.textContent = "";
-            let filter = "^(?:" + searchbox.value.toLowerCase().replace(/\*/g, ".*") + ")$";
+            let filter = "^(?:" + searchbox.value.toLowerCase().replace(/%/g, ".*") + ")$";
             let i = 0;
             let re;
             try {
@@ -65,8 +68,9 @@ onload = () => {
         };
         searchbox.onkeydown = (e) => {
             if (e.which === 13) {
-                let el = document.createElement("div");
+                let el = document.createElement("a");
                 el.className = "hist";
+                el.href = "#";
                 el.textContent = searchbox.value;
                 history.appendChild(el);
             }
@@ -74,12 +78,13 @@ onload = () => {
         history.onclick = (e) => {
             let el = e.target;
             if (el.className === "hist") {
+                e.preventDefault();
                 searchbox.value = el.textContent;
                 searchbox.oninput();
             }
         };
     });
-    x.open("GET", "saol2.txt");
+    x.open("GET", "dict.txt");
     x.send();
 };
 </script>
