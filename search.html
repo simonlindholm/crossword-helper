@@ -45,25 +45,30 @@ onload = () => {
             resar.textContent = "";
             let filter = "^(?:" + searchbox.value.toLowerCase().replace(/%/g, ".*") + ")$";
             let i = 0;
-            let re;
+            let re, re2;
             try {
                 re = new RegExp(filter, "mg");
+                re2 = new RegExp(filter);
             } catch(e) {
                 return;
             }
             for (let m of dictionary.matchAll(re)) {
-                let res = m[0];
-                if (i === MAX_RESULTS) {
-                    res = "Fler...";
+                for (let res of m[0].split("\n")) {
+                    if (!re2.test(res)) {
+                        continue;
+                    }
+                    if (i === MAX_RESULTS) {
+                        res = "Fler...";
+                    }
+                    let el = document.createElement("div");
+                    el.className = "row";
+                    el.textContent = res;
+                    resar.appendChild(el);
+                    if (i === MAX_RESULTS) {
+                        return;
+                    }
+                    i++;
                 }
-                let el = document.createElement("div");
-                el.className = "row";
-                el.textContent = res;
-                resar.appendChild(el);
-                if (i === MAX_RESULTS) {
-                    break;
-                }
-                i++;
             }
         };
         searchbox.onkeydown = (e) => {
