@@ -1,8 +1,13 @@
 <!DOCTYPE html>
 <meta charset=utf-8>
+<title>Sök ord</title>
 <style>
 #cont1 {
     float: left;
+}
+#cont2 {
+    float: left;
+    padding: 10px;
 }
 #results {
     border: 1px solid black;
@@ -14,9 +19,7 @@
     overflow-x: hidden;
 }
 #history {
-    float: left;
     font: 15px monospace;
-    padding: 10px;
 }
 input {
     border: 1px solid black;
@@ -31,7 +34,7 @@ input {
 }
 </style>
 <script>
-const MAX_RESULTS = 1000;
+let maxResults = 1000;
 
 onload = () => {
     var x = new XMLHttpRequest();
@@ -57,16 +60,21 @@ onload = () => {
                     if (!re2.test(res)) {
                         continue;
                     }
-                    if (i === MAX_RESULTS) {
-                        res = "Fler...";
-                    }
-                    let el = document.createElement("div");
-                    el.className = "row";
-                    el.textContent = res;
-                    resar.appendChild(el);
-                    if (i === MAX_RESULTS) {
+                    if (i === maxResults) {
+                        let el = document.createElement("a");
+                        el.textContent = "Fler...";
+                        el.href = "#";
+                        el.onclick = function() {
+                            maxResults *= 2;
+                            searchbox.oninput();
+                            return false;
+                        };
+                        resar.appendChild(el);
                         return;
                     }
+                    let el = document.createElement("div");
+                    el.textContent = res;
+                    resar.appendChild(el);
                     i++;
                 }
             }
@@ -94,7 +102,10 @@ onload = () => {
 };
 </script>
 <div id="cont1">
-<input id="searchbox" autofocus>
+<input id="searchbox" autofocus placeholder="Skriv ett regex...">
 <div id="results"></div>
 </div>
+<div id="cont2">
+<!-- <code>%</code> är förkortning för <code>.*</code> ; enter lägger till i historik. -->
 <div id="history"></div>
+</div>
