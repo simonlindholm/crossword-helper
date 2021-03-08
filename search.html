@@ -43,6 +43,7 @@ onload = () => {
         let searchbox = document.getElementById("searchbox");
         let history = document.getElementById("history");
         searchbox.value = "";
+        searchbox.placeholder = "Skriv ett regex...";
         searchbox.oninput = () => {
             let resar = document.getElementById("results");
             resar.textContent = "";
@@ -102,7 +103,7 @@ onload = () => {
 };
 </script>
 <div id="cont1">
-<input id="searchbox" autofocus placeholder="Skriv ett regex...">
+<input id="searchbox" autofocus placeholder="Laddar...">
 <div id="results"></div>
 </div>
 <div id="cont2">
