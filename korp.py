@@ -19,11 +19,18 @@ def main():
         help="rg-compatible regex to search for",
     )
     parser.add_argument(
-        "-r",
-        "--raw",
+        "-u",
+        "--unrestricted",
         dest="limit_to_word",
         action="store_false",
         help="raw regex; don't restrict to word boundaries",
+    )
+    parser.add_argument(
+        "-I",
+        "--no-ignore-case",
+        dest="ignore_case",
+        action="store_false",
+        help="don't ignore letter case (upper vs lower)",
     )
     parser.add_argument(
         "-c",
@@ -50,6 +57,8 @@ def main():
     rg_args = ["--line-buffered", "--json"]
     if args.limit_to_word:
         rg_args.append("--word-regexp")
+    if args.ignore_case:
+        rg_args.append("--ignore-case")
     rg_args += ["--", regex, corpus]
 
     corpus_f = open(corpus, "rb")
