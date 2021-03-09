@@ -33,6 +33,20 @@ def main():
         help="don't ignore letter case (upper vs lower)",
     )
     parser.add_argument(
+        "--hidden",
+        dest="hidden",
+        action="store_const",
+        const=2,
+        help="find hidden word (overrides -u)",
+    )
+    parser.add_argument(
+        "--very-hidden",
+        dest="hidden",
+        action="store_const",
+        const=2,
+        help="find hidden word, split over several (overrides -u)",
+    )
+    parser.add_argument(
         "-c",
         "--context",
         dest="context",
@@ -54,8 +68,10 @@ def main():
     regex = args.regex
     if args.file:
         corpus = args.file
+    if args.hidden:
+        regex = r"\w" + " ?".join(regex) + r"\w"
     rg_args = ["--line-buffered", "--json"]
-    if args.limit_to_word:
+    if args.limit_to_word and not args.hidden:
         rg_args.append("--word-regexp")
     if args.ignore_case:
         rg_args.append("--ignore-case")
@@ -95,11 +111,15 @@ def main():
 
             word_start = start - full_start - trim_start
             word_end = word_start + (end - start)
-            context_before = full_bytes[: word_start].decode("utf-8")
+            context_before = full_bytes[: word_start].decode("utf-8")[-context: ].rjust(context)
             word = full_bytes[word_start : word_end].decode("utf-8")
-            context_after = full_bytes[word_end :].decode("utf-8")
-            context_before = context_before[-context: ].rjust(context)
-            context_after = context_after[: context].ljust(context)
+            context_after = full_bytes[word_end :].decode("utf-8")[: context].ljust(context)
+            if args.hidden:
+                context_before = context_before[1:] + word[0]
+                context_after = word[-1] + context_after[:-1]
+                word = word[1:-1]
+                if args.hidden == 2 and " " not in word:
+                    continue
             print(context_before + "\033[91m" + word + "\033[0m" + context_after)
 
 try:
