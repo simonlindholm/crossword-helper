@@ -36,7 +36,7 @@ def main():
         "--hidden",
         dest="hidden",
         action="store_const",
-        const=2,
+        const=1,
         help="find hidden word (overrides -u)",
     )
     parser.add_argument(
