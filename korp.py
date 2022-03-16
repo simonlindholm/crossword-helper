@@ -78,6 +78,7 @@ def main():
     rg_args += ["--", regex, corpus]
 
     corpus_f = open(corpus, "rb")
+    use_color = sys.stdout.isatty()
 
     proc = subprocess.Popen(["rg"] + rg_args, stdout=subprocess.PIPE)
     for line in iter(proc.stdout.readline, b''):
@@ -120,7 +121,9 @@ def main():
                 word = word[1:-1]
                 if args.hidden == 2 and " " not in word:
                     continue
-            print(context_before + "\033[91m" + word + "\033[0m" + context_after)
+            if use_color:
+                word = "\033[91m" + word + "\033[0m"
+            print(context_before + word + context_after)
 
 try:
     main()
