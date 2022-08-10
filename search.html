@@ -75,6 +75,9 @@ onload = () => {
                     }
                     let el = document.createElement("div");
                     el.textContent = res;
+                    el.onclick = function() {
+                        window.open("https://svenska.se/tre/?sok=" + encodeURIComponent(this.textContent));
+                    };
                     resar.appendChild(el);
                     i++;
                 }
