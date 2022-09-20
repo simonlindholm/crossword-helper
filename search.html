@@ -133,7 +133,7 @@ function doSearch(query, callback) {
                 continue;
             }
             if (hasFilters) {
-                const meta = dictMeta[charIndex];
+                const meta = dictMeta[charIndex >> 1];
                 const key = meta[0];
                 if (key in noFilterMatchCache) continue;
                 else {
@@ -496,7 +496,8 @@ function initDictMeta() {
                 if (windStr && cacheKey) cacheKey += "!";
                 cacheKey += tagKey;
             }
-            while (dictMeta.length < charIndex) dictMeta.push(null);
+            const arIndex = charIndex >> 1;
+            while (dictMeta.length < arIndex) dictMeta.push(null);
             dictMeta.push([cacheKey, meta]);
             charIndex += w.length + 1;
         }
