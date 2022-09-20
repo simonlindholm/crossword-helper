@@ -344,6 +344,24 @@ class FilterOr {
     }
 }
 
+class ConditionalFilter {
+    constructor(cond, thenRequire) {
+        this.cond = cond;
+        this.thenRequire = thenRequire;
+    }
+    setId(id, allIds) { this.thenRequire.setId(id, allIds); }
+    matches(state, tags) {
+        if (this.cond in state)
+            return this.thenRequire.matches(state, tags);
+        return true;
+    }
+    render(state) {
+        if (this.cond in state)
+            return this.thenRequire.render(state);
+        return new DocumentFragment();
+    }
+}
+
 const GenFilter = () => new FilterSelect("inline", {
     "ej genitiv": filter("!g"),
     "genitiv": filter("g"),
@@ -382,7 +400,7 @@ const filterRoot = new FilterAnd([
                     "presens particip": filter("prespart"),
                     "perfekt particip": filter("perfpart"),
                 }),
-                // These aren't actually orthogonal: "fina plural", "de fina pluralen",
+                // TODO: these aren't actually orthogonal: "fina plural", "de fina pluralen",
                 // "det fina singularet" are valid, but not "ett fina singular"...
                 new FilterSelect("inline", {
                     "obestämd": filter("ind"),
@@ -449,10 +467,16 @@ const filterRoot = new FilterAnd([
         "ett ord": filter("!fras&!sms&!slutled"),
         "sammansättning": filter("sms|slutled"),
     }),
+    new ConditionalFilter(
+        "notfirst",
+        new FilterSelect("inline", {
+            "samma basord": filter("same"),
+            "annat basord": filter("!same"),
+        }),
+    ),
 ]);
 filterRoot.setId("", new Set());
 // TODO: filter by JS
-// TODO: filter by same/not same article
 
 function createFilterBox(filter, index) {
     const ch = document.createElement("div");
@@ -518,6 +542,8 @@ function updateFilterUI() {
     initDictMeta();
     filterCont.textContent = "";
     for (let i = 0; i < filters.length; i++) {
+        if (i === 0) delete filters[i].notfirst;
+        else filters[i].notfirst = 1;
         filterCont.appendChild(createFilterBox(filters[i], i));
     }
     filterAdd.setAttribute("data-empty", filters.length === 0 ? "true" : "false");
@@ -525,10 +551,16 @@ function updateFilterUI() {
 }
 
 function matchesFilters(meta) {
+    const matchedBaseWords = new Set();
     for (const f of filters) {
         let hasMatch = false;
         for (const {w, t} of meta) {
-            if (filterRoot.matches(f, t)) {
+            let same = matchedBaseWords.has(w);
+            if (same) t.add("same");
+            const m = filterRoot.matches(f, t)
+            if (same) t.delete("same");
+            if (m) {
+                matchedBaseWords.add(w);
                 hasMatch = true;
                 break;
             }
