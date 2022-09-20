@@ -98,23 +98,20 @@
 </div>
 
 <script>
-let searchBox = document.getElementById("searchbox");
-let filterCont = document.getElementById("filtercont");
-let filterAdd = document.getElementById("filteradd");
-let history = document.getElementById("history");
+const searchBox = document.getElementById("searchbox");
+const filterCont = document.getElementById("filtercont");
+const filterAdd = document.getElementById("filteradd");
+const history = document.getElementById("history");
+const resultsArea = document.getElementById("results");
 let maxResults = 1000;
 let filters = [];
 let dictText, respText;
-let dictMeta = [];
+const dictMeta = [];
 
-function search() {
-    if (!dictText) return;
-    const t0 = performance.now();
-    const resar = document.getElementById("results");
-    resar.textContent = "";
+function doSearch(query, callback) {
+    resultsArea.textContent = "";
     const noFilterMatchCache = {};
     const filterCache = {};
-    const query = searchBox.value.toLowerCase();
     const filter = "^(?:" + query.replace(/%/g, ".*") + ")$";
     let numResults = 0;
     let re, re2;
@@ -150,29 +147,37 @@ function search() {
                     if (!matches) continue;
                 }
             }
-            if (numResults === maxResults) {
-                let el = document.createElement("a");
-                el.textContent = "Fler...";
-                el.href = "#";
-                el.onclick = function() {
-                    maxResults *= 2;
-                    search();
-                    return false;
-                };
-                resar.appendChild(el);
-                return;
-            }
-            const row = document.createElement("div");
-            const el = document.createElement("span");
-            el.textContent = res;
-            el.onclick = function() {
-                window.open("https://svenska.se/tre/?sok=" + encodeURIComponent(this.textContent));
-            };
-            row.append(el);
-            resar.append(row);
-            numResults++;
+            if (callback(res)) return;
         }
     }
+}
+
+function search() {
+    if (!dictText) return;
+    const t0 = performance.now();
+    const query = searchBox.value.toLowerCase();
+    resultsArea.textContent = "";
+    let numResults = 0;
+    doSearch(query, res => {
+        if (numResults === maxResults) {
+            let el = document.createElement("a");
+            el.textContent = "Fler...";
+            el.href = "#";
+            el.onclick = (e) => {
+                e.preventDefault();
+                maxResults *= 2;
+                search();
+            };
+            resultsArea.appendChild(el);
+            return true;
+        }
+        const row = document.createElement("div");
+        const el = document.createElement("span");
+        el.textContent = res;
+        row.append(el);
+        resultsArea.append(row);
+        numResults++;
+    });
     const t1 = performance.now(), dur = t1 - t0;
     if (dur > 50) {
         const filt = [];
@@ -539,6 +544,12 @@ searchBox.onkeydown = (e) => {
             updateFilterUI();
         };
         history.appendChild(el);
+    }
+};
+
+resultsArea.onclick = (e) => {
+    if (e.target.tagName === "SPAN") {
+        window.open("https://svenska.se/tre/?sok=" + encodeURIComponent(e.target.textContent));
     }
 };
 
