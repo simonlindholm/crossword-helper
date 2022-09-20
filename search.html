@@ -114,60 +114,59 @@ const history = document.getElementById("history");
 const resultsArea = document.getElementById("results");
 let maxResults = 1000;
 let filters = [];
-let dictText, respText;
+let dictWords, dictText, respText;
 const dictMeta = [];
 
 function doSearch(query, callback) {
-    resultsArea.textContent = "";
+    if (!query) return;
     const noFilterMatchCache = {};
     const filterCache = {};
-    const filter = "^(?:" + query.replace(/%/g, ".*") + ")$";
+    const filter = "^(?:" + query + ")$";
     let numResults = 0;
-    let re, re2;
-    try {
-        re = new RegExp(filter, "mg");
-        re2 = new RegExp(filter);
-    } catch(e) {
-        return;
+    let re;
+    if (query !== ".*") {
+        try {
+            re = new RegExp(filter);
+        } catch(e) {
+            return;
+        }
     }
+
     const hasFilters = filters.length > 0;
     const emptyFilters = JSON.stringify(filters) === "[]";
-    for (const m of dictText.matchAll(re)) {
-        // If the user typed a regex that matched across multiple lines by accident,
-        // check it against all individual lines in the match.
-        const mText = m[0], parts = mText.split("\n"), len = parts.length;
-        let charIndex = m.index;
-        for (let i = 0; i < len; charIndex += parts[i].length + 1, i++) {
-            const res = parts[i];
-            if (len > 1 && !re2.test(res)) {
-                continue;
-            }
-            if (hasFilters) {
-                const meta = dictMeta[charIndex >> 1];
-                const key = meta[0];
-                if (key in noFilterMatchCache) continue;
-                else {
-                    let matches = filterCache[key];
-                    if (matches === undefined) {
-                        matches = matchesFilters(meta[1]);
-                        filterCache[key] = matches;
-                        if (!matches) {
-                            if (emptyFilters) console.log("Empty filter failed to match:", res, key);
-                            noFilterMatchCache[key] = true;
-                        }
-                    }
-                    if (!matches) continue;
-                }
-            }
-            if (callback(res)) return;
+
+    const len = dictWords.length;
+    for (let i = 0; i < len; i++) {
+        const w = dictWords[i];
+        if (re && !re.test(w)) {
+            continue;
         }
+        if (hasFilters) {
+            const meta = dictMeta[i];
+            const key = meta[0];
+            if (key in noFilterMatchCache) continue;
+            else {
+                let matches = filterCache[key];
+                if (matches === undefined) {
+                    // (~30ms in here)
+                    matches = matchesFilters(meta[1]);
+                    filterCache[key] = matches;
+                    if (!matches) {
+                        if (emptyFilters) console.log("Empty filter failed to match:", w, key);
+                        noFilterMatchCache[key] = true;
+                    }
+                }
+                if (!matches) continue;
+            }
+        }
+        if (callback(w)) break;
     }
 }
 
 function search() {
     if (!dictText) return;
     const t0 = performance.now();
-    const query = searchBox.value.toLowerCase();
+    const query = searchBox.value.toLowerCase().replace(/%/g, ".*");
     resultsArea.textContent = "";
     let numResults = 0;
     doSearch(query, res => {
@@ -189,15 +188,14 @@ function search() {
         row.append(el);
         resultsArea.append(row);
         numResults++;
+        return false;
     });
     const t1 = performance.now(), dur = t1 - t0;
-    if (dur > 50) {
-        const filt = [];
-        for (const f of filters)
-            filt.push(Object.keys(f).join(","));
-        const filtStr = filt.length > 0 ? " with filter(s) " + filt.join(" AND ") : "";
-        console.log("Time taken to search for " + query + filtStr + ": " + Math.round(dur));
-    }
+    const filt = [];
+    for (const f of filters)
+        filt.push(Object.keys(f).join(","));
+    const filtStr = filt.length > 0 ? " with filter(s) " + filt.join(" AND ") : "";
+    console.log("Search for %s%s took %d ms, %d results", query, filtStr, Math.round(dur), numResults);
 }
 
 class CallbackFilter {
@@ -509,10 +507,7 @@ function initDictMeta() {
                 meta.push({w: wind, t: tags[tagKey]});
                 cacheKey += tagKey;
             }
-            const arIndex = charIndex >> 1;
-            while (dictMeta.length < arIndex) dictMeta.push(null);
             dictMeta.push([cacheKey, meta]);
-            charIndex += w.length + 1;
         }
     }
     const t1 = performance.now();
@@ -577,7 +572,7 @@ updateFilterUI();
 let xhr = new XMLHttpRequest();
 xhr.addEventListener("load", () => {
     let inTags = true;
-    const dictWords = [];
+    dictWords = [];
     const t0 = performance.now();
     respText = xhr.responseText;
     const lines = respText.split("\n"), le = lines.length;
