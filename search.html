@@ -106,6 +106,7 @@
 </div>
 
 <script>
+"use strict";
 const searchBox = document.getElementById("searchbox");
 const filterCont = document.getElementById("filtercont");
 const filterAdd = document.getElementById("filteradd");
@@ -130,6 +131,7 @@ function doSearch(query, callback) {
         return;
     }
     const hasFilters = filters.length > 0;
+    const emptyFilters = JSON.stringify(filters) === "[]";
     for (const m of dictText.matchAll(re)) {
         // If the user typed a regex that matched across multiple lines by accident,
         // check it against all individual lines in the match.
@@ -149,8 +151,10 @@ function doSearch(query, callback) {
                     if (matches === undefined) {
                         matches = matchesFilters(meta[1]);
                         filterCache[key] = matches;
-                        if (!matches)
+                        if (!matches) {
+                            if (emptyFilters) console.log("Empty filter failed to match:", res, key);
                             noFilterMatchCache[key] = true;
+                        }
                     }
                     if (!matches) continue;
                 }
@@ -432,7 +436,6 @@ const filterRoot = new FilterAnd([
     }),
 ]);
 filterRoot.setId("", new Set());
-// TODO: check that default state doesn't filter anything out
 // TODO: filter by JS
 // TODO: filter by same/not same article
 
@@ -482,11 +485,11 @@ function initDictMeta() {
                 const d = enc[j];
                 const sp = (d.charCodeAt(0) >= 97 ? 1 : 2);
                 const tagKey = d.slice(0, sp);
-                const windStr = d.slice(sp);
-                if (windStr)
-                    wind = +windStr;
+                if (sp !== d.length) {
+                    wind = +d.slice(sp);
+                    if (cacheKey) cacheKey += "!";
+                }
                 meta.push({w: wind, t: tags[tagKey]});
-                if (windStr && cacheKey) cacheKey += "!";
                 cacheKey += tagKey;
             }
             const arIndex = charIndex >> 1;
