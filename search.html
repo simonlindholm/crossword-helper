@@ -66,18 +66,26 @@
 .filter-sel-label.tab {
     display: block;
 }
-.filter-sel-opt.inline, .filter-sel-cont.inline {
+.filter-sel-opt.inline, .filter-sel-cont.inline,
+.filter-sel-opt.paren, .filter-sel-cont.paren {
     display: inline;
 }
-.filter-sel-opt.inline {
+.filter-sel-opt.inline,
+.filter-sel-opt.paren {
     padding-right: 2px;
 }
 .filter-sel-cont.row, .filter-sel-cont.tab {
     display: block;
     padding-left: 10px;
 }
-.filter-or.inline {
+.filter-sel.paren {
     display: inline;
+}
+.filter-sel.paren::before {
+    content: " (";
+}
+.filter-sel.paren::after {
+    content: ")";
 }
 </style>
 
@@ -252,7 +260,7 @@ class FilterSelect {
     }
     render(state) {
         const node = document.createElement("div");
-        node.classList.add("filter-or", this.cls);
+        node.classList.add("filter-sel", this.cls);
         const caseNodes = {};
         for (const opt in this.cases) {
             const x = this.cases[opt];
@@ -334,25 +342,9 @@ class FilterOr {
     }
 }
 
-class FilterGroup {
-    constructor(title, filter) {
-        this.title = title;
-        this.filter = filter;
-    }
-    setId(id, allIds) { this.filter.setId(id, allIds); }
-    matches(state, tags) { return this.filter.matches(state, tags); }
-    render(state) {
-        const node = document.createElement("div");
-        if (this.title)
-            node.append(this.title + ": ");
-        node.append(this.filter.render(state));
-        return node;
-    }
-}
-
 const GenFilter = () => new FilterSelect("inline", {
-    "genitiv": filter("g"),
     "ej genitiv": filter("!g"),
+    "genitiv": filter("g"),
 });
 
 const filterRoot = new FilterAnd([
@@ -360,16 +352,18 @@ const filterRoot = new FilterAnd([
         "Substantiv": new FilterAnd([
             new FilterSelect("row", {
                 "regelbundna": new FilterAnd([
-                    new FilterGroup("", new FilterSelect("inline", {
+                    new FilterSelect("inline", {
                         "obestämd": filter("ind"),
                         "bestämd": filter("def"),
-                    })),
-                    new FilterGroup("", new FilterSelect("inline", {
-                        "neutrum": filter("n"),
-                        "utrum": filter("u"),
-                        "maskulinum": filter("m"),
+                    }),
+                    new FilterSelect("inline", {
+                        "singular": new FilterSelect("paren", {
+                            "neutrum": filter("n"),
+                            "utrum": filter("u"),
+                            "maskulinum": filter("m"),
+                        }),
                         "plural": filter("p"),
-                    })),
+                    }),
                 ]),
                 "oregelbundna": filter("!ind&!def&!namn"),
                 "namn": filter("namn"),
@@ -379,46 +373,46 @@ const filterRoot = new FilterAnd([
         ]),
         "Adjektiv": new FilterSelect("row", {
             "regelbundna adjektiv": new FilterAnd([
-                new FilterGroup("", new FilterSelect("inline", {
+                new FilterSelect("inline", {
                     "positiv": filter("pos"),
                     "komparativ": filter("komp"),
                     "superlativ": filter("super"),
                     "presens particip": filter("prespart"),
                     "perfekt particip": filter("perfpart"),
-                })),
+                }),
                 filter("adjektiv"),
             ]),
             "oregelbundna adjektiv": filter("adjektiv&!pos&!komp&!super&!prespart&!perfpart"),
             "adverb": filter("adverb"),
         }),
         "Verb": new FilterAnd([
-            new FilterGroup("", new FilterSelect("inline", {
+            new FilterSelect("inline", {
                 "infinitiv": filter("inf"),
                 "presens": filter("pres"),
                 "preteritum": filter("pret"),
                 "supinum": filter("supin"),
                 "imperativ": filter("imper"),
-            })),
-            new FilterGroup("", new FilterSelect("inline", {
+            }),
+            new FilterSelect("inline", {
                 "aktiv": filter("aktiv"),
-                "passiv": filter("passiv"),
                 "deponens": filter("deponens"),
+                "passiv": filter("passiv"),
                 "konjunktiv": filter("konjunktiv"),
-            })),
+            }),
             filter("verb"),
         ]),
         "Pronomen": new FilterAnd([
-            new FilterGroup("", new FilterSelect("inline", {
+            new FilterSelect("inline", {
                 "neutrum": filter("n"),
                 "utrum": filter("u"),
                 "maskulinum": filter("m"),
                 "plural": filter("p"),
                 "oklassificerat": filter("!n&!u&!m&!p"),
-            })),
-            new FilterGroup("", new FilterSelect("inline", {
+            }),
+            new FilterSelect("inline", {
                 "räkneord": filter("räkneord"),
                 "ej räkneord": filter("pronomen"),
-            })),
+            }),
             GenFilter(),
         ]),
         "Bindeord": new FilterSelect("row", {
@@ -431,17 +425,16 @@ const filterRoot = new FilterAnd([
         }),
         "Uttryck": filter("extra"),
     }),
-    new FilterGroup("", new FilterSelect("inline", {
+    new FilterSelect("inline", {
         "flera ord": filter("fras&!sms&!slutled"),
         "ett ord": filter("!fras&!sms&!slutled"),
         "sammansättning": filter("sms|slutled"),
-    })),
+    }),
 ]);
 filterRoot.setId("", new Set());
 // TODO: check that default state doesn't filter anything out
 // TODO: filter by JS
 // TODO: filter by same/not same article
-// TODO remove FilterGroup?
 
 function createFilterBox(filter, index) {
     const ch = document.createElement("div");
