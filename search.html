@@ -8,6 +8,7 @@
 #cont2 {
     float: left;
     padding: 10px;
+    font: 16px dejavu serif, serif;
 }
 #results {
     border: 1px solid black;
@@ -18,10 +19,20 @@
     overflow-y: auto;
     overflow-x: hidden;
 }
+#results > div > span {
+    cursor: pointer;
+}
 #history {
     font: 15px monospace;
 }
-input {
+#filteradd[data-empty=true] > .nonempty,
+#filteradd[data-empty=false] > .empty {
+    display: none;
+}
+#filteradd {
+    color: inherit;
+}
+#searchbox {
     border: 1px solid black;
     padding: 10px;
     width: 200px;
@@ -32,84 +43,534 @@ input {
     color: inherit;
     text-decoration: none;
 }
+.filter {
+    float: left;
+}
+.remove-filter-link {
+    color: inherit;
+}
+.filter-sel-opt:not([data-matches=no]) {
+    background-color: lightgreen;
+}
+.filter-sel-opt[data-matches=no],
+.filter-sel-opt[data-matches=no] .filter-sel-opt {
+    background-color: white;
+}
+.filter-sel-opt.tab {
+    border: 1px solid gray;
+    padding: 3px 6px 3px 2px;
+}
+.filter-sel-opt.tab:not(:first-child) {
+    border-top: none;
+}
+.filter-sel-label.tab {
+    display: block;
+}
+.filter-sel-opt.inline, .filter-sel-cont.inline {
+    display: inline;
+}
+.filter-sel-opt.inline {
+    padding-right: 2px;
+}
+.filter-sel-cont.row, .filter-sel-cont.tab {
+    display: block;
+    padding-left: 10px;
+}
+.filter-or.inline {
+    display: inline;
+}
 </style>
-<script>
-let maxResults = 1000;
 
-onload = () => {
-    var x = new XMLHttpRequest();
-    x.addEventListener("load", () => {
-        let dictionary = x.responseText;
-        let searchbox = document.getElementById("searchbox");
-        let history = document.getElementById("history");
-        searchbox.value = "";
-        searchbox.placeholder = "Skriv ett regex...";
-        searchbox.oninput = () => {
-            let resar = document.getElementById("results");
-            resar.textContent = "";
-            let filter = "^(?:" + searchbox.value.toLowerCase().replace(/%/g, ".*") + ")$";
-            let i = 0;
-            let re, re2;
-            try {
-                re = new RegExp(filter, "mg");
-                re2 = new RegExp(filter);
-            } catch(e) {
-                return;
-            }
-            for (let m of dictionary.matchAll(re)) {
-                for (let res of m[0].split("\n")) {
-                    if (!re2.test(res)) {
-                        continue;
-                    }
-                    if (i === maxResults) {
-                        let el = document.createElement("a");
-                        el.textContent = "Fler...";
-                        el.href = "#";
-                        el.onclick = function() {
-                            maxResults *= 2;
-                            searchbox.oninput();
-                            return false;
-                        };
-                        resar.appendChild(el);
-                        return;
-                    }
-                    let el = document.createElement("div");
-                    el.textContent = res;
-                    el.onclick = function() {
-                        window.open("https://svenska.se/tre/?sok=" + encodeURIComponent(this.textContent));
-                    };
-                    resar.appendChild(el);
-                    i++;
-                }
-            }
-        };
-        searchbox.onkeydown = (e) => {
-            if (e.which === 13) {
-                let el = document.createElement("a");
-                el.className = "hist";
-                el.href = "#";
-                el.textContent = searchbox.value;
-                history.appendChild(el);
-            }
-        };
-        history.onclick = (e) => {
-            let el = e.target;
-            if (el.className === "hist") {
-                e.preventDefault();
-                searchbox.value = el.textContent;
-                searchbox.oninput();
-            }
-        };
-    });
-    x.open("GET", "dict.txt");
-    x.send();
-};
-</script>
 <div id="cont1">
 <input id="searchbox" autofocus placeholder="Laddar...">
 <div id="results"></div>
 </div>
 <div id="cont2">
+<div id="filterbox">
+    <div id="filtercont"></div>
+    <a id="filteradd" href="#">
+        <span class="empty">Filtrera...</span>
+        <span class="nonempty">och kräv även...</span>
+    </a>
+</div>
 <!-- <code>%</code> är förkortning för <code>.*</code> ; enter lägger till i historik. -->
 <div id="history"></div>
 </div>
+
+<script>
+let searchBox = document.getElementById("searchbox");
+let filterCont = document.getElementById("filtercont");
+let filterAdd = document.getElementById("filteradd");
+let history = document.getElementById("history");
+let maxResults = 1000;
+let filters = [];
+let dictText, respText;
+let dictMeta = [];
+
+function search() {
+    if (!dictText) return;
+    const t0 = performance.now();
+    const resar = document.getElementById("results");
+    resar.textContent = "";
+    const noFilterMatchCache = {};
+    const filterCache = {};
+    const query = searchBox.value.toLowerCase();
+    const filter = "^(?:" + query.replace(/%/g, ".*") + ")$";
+    let numResults = 0;
+    let re, re2;
+    try {
+        re = new RegExp(filter, "mg");
+        re2 = new RegExp(filter);
+    } catch(e) {
+        return;
+    }
+    const hasFilters = filters.length > 0;
+    for (const m of dictText.matchAll(re)) {
+        // If the user typed a regex that matched across multiple lines by accident,
+        // check it against all individual lines in the match.
+        const mText = m[0], parts = mText.split("\n"), len = parts.length;
+        let charIndex = m.index;
+        for (let i = 0; i < len; charIndex += parts[i].length + 1, i++) {
+            const res = parts[i];
+            if (len > 1 && !re2.test(res)) {
+                continue;
+            }
+            if (hasFilters) {
+                const meta = dictMeta[charIndex];
+                const key = meta[0];
+                if (key in noFilterMatchCache) continue;
+                else {
+                    let matches = filterCache[key];
+                    if (matches === undefined) {
+                        matches = matchesFilters(meta[1]);
+                        filterCache[key] = matches;
+                        if (!matches)
+                            noFilterMatchCache[key] = true;
+                    }
+                    if (!matches) continue;
+                }
+            }
+            if (numResults === maxResults) {
+                let el = document.createElement("a");
+                el.textContent = "Fler...";
+                el.href = "#";
+                el.onclick = function() {
+                    maxResults *= 2;
+                    search();
+                    return false;
+                };
+                resar.appendChild(el);
+                return;
+            }
+            const row = document.createElement("div");
+            const el = document.createElement("span");
+            el.textContent = res;
+            el.onclick = function() {
+                window.open("https://svenska.se/tre/?sok=" + encodeURIComponent(this.textContent));
+            };
+            row.append(el);
+            resar.append(row);
+            numResults++;
+        }
+    }
+    const t1 = performance.now(), dur = t1 - t0;
+    if (dur > 50) {
+        const filt = [];
+        for (const f of filters)
+            filt.push(Object.keys(f).join(","));
+        const filtStr = filt.length > 0 ? " with filter(s) " + filt.join(" AND ") : "";
+        console.log("Time taken to search for " + query + filtStr + ": " + Math.round(dur));
+    }
+}
+
+class CallbackFilter {
+    constructor(callback) {
+        this.callback = callback;
+    }
+    setId(id, allIds) {}
+    matches(state, tags) { return this.callback(tags); }
+    render(state) { return new DocumentFragment(); }
+}
+
+function filter(expr) {
+    function parse4(expr) {
+        return tags => tags.has(expr);
+    }
+    function parse3(expr) {
+        return expr.split("!").map(parse4).reduce((a, b) => tags => !b(tags));
+    }
+    function parse2(expr) {
+        return expr.split("&").map(parse3).reduce((a, b) => tags => a(tags) && b(tags));
+    }
+    function parse1(expr) {
+        return expr.split("|").map(parse2).reduce((a, b) => tags => a(tags) || b(tags));
+    }
+    return new CallbackFilter(parse1(expr));
+}
+
+class FilterSelect {
+    constructor(cls, cases) {
+        this.cls = cls;
+        this.cases = cases;
+        this.caseIds = {};
+    }
+    setId(id, allIds) {
+        for (const opt in this.cases) {
+            const x = this.cases[opt];
+            const caseId = (id ? id + "." : "") + opt;
+            if (allIds.has(caseId))
+                throw new Exception("duplicate id " + caseId);
+            allIds.add(caseId);
+            this.caseIds[opt] = caseId;
+            x.setId(caseId, allIds);
+        }
+    }
+    getId(opt) {
+        const caseId = this.caseIds[opt];
+        if (!caseId)
+            throw new Exception("id not set");
+        return caseId;
+    }
+    matches(state, tags) {
+        let hasAny = false, matchesAny = false;
+        for (const opt in this.cases) {
+            const x = this.cases[opt];
+            const caseId = this.getId(opt);
+            if (caseId in state) {
+                if (x.matches(state, tags)) return true;
+                else hasAny = true;
+            } else {
+                if (x.matches(state, tags)) matchesAny = true;
+            }
+        }
+        return !hasAny && matchesAny;
+    }
+    render(state) {
+        const node = document.createElement("div");
+        node.classList.add("filter-or", this.cls);
+        const caseNodes = {};
+        for (const opt in this.cases) {
+            const x = this.cases[opt];
+            const caseId = this.getId(opt);
+            const option = document.createElement("div");
+            option.classList.add("filter-sel-opt", this.cls);
+            const label = document.createElement("label");
+            label.classList.add("filter-sel-label", this.cls);
+            const checkbox = document.createElement("input");
+            checkbox.type = "checkbox";
+            checkbox.checked = caseId in state;
+            checkbox.onchange = () => {
+                if (checkbox.checked) state[caseId] = 1;
+                else delete state[caseId];
+                this.updateStyle(state, caseNodes);
+                search();
+            };
+            label.append(checkbox, opt);
+            option.append(label);
+            const content = document.createElement("div");
+            content.classList.add("filter-sel-cont", this.cls);
+            const subNode = x.render(state);
+            content.append(subNode);
+            option.append(content);
+            node.append(option);
+            caseNodes[opt] = option;
+        }
+        this.updateStyle(state, caseNodes);
+        return node;
+    }
+    updateStyle(state, caseNodes) {
+        let hasAny = false;
+        for (const opt in this.cases) {
+            if (this.getId(opt) in state) hasAny = true;
+        }
+        for (const opt in this.cases) {
+            caseNodes[opt].setAttribute("data-matches",
+                this.getId(opt) in state ? "yes" : hasAny ? "no" : "auto"
+            );
+        }
+    }
+}
+
+class FilterAnd {
+    constructor(list) {
+        this.list = list;
+    }
+    setId(id, allIds) {
+        for (const x of this.list) x.setId(id, allIds);
+    }
+    matches(state, tags) {
+        return this.list.every(x => x.matches(state, tags));
+    }
+    render(state) {
+        const node = new DocumentFragment();
+        for (const x of this.list) {
+            node.append(x.render(state));
+        }
+        return node;
+    }
+}
+
+class FilterOr {
+    constructor(list) {
+        this.list = list;
+    }
+    setId(id, allIds) {
+        for (const x of this.list) x.setId(id, allIds);
+    }
+    matches(state, tags) {
+        return this.list.some(x => x.matches(state, tags));
+    }
+    render(state) {
+        const node = new DocumentFragment();
+        for (const x of this.list) {
+            node.append(x.render(state));
+        }
+        return node;
+    }
+}
+
+class FilterGroup {
+    constructor(title, filter) {
+        this.title = title;
+        this.filter = filter;
+    }
+    setId(id, allIds) { this.filter.setId(id, allIds); }
+    matches(state, tags) { return this.filter.matches(state, tags); }
+    render(state) {
+        const node = document.createElement("div");
+        if (this.title)
+            node.append(this.title + ": ");
+        node.append(this.filter.render(state));
+        return node;
+    }
+}
+
+const GenFilter = () => new FilterSelect("inline", {
+    "genitiv": filter("g"),
+    "ej genitiv": filter("!g"),
+});
+
+const filterRoot = new FilterAnd([
+    new FilterSelect("tab", {
+        "Substantiv": new FilterAnd([
+            new FilterSelect("row", {
+                "regelbundna": new FilterAnd([
+                    new FilterGroup("", new FilterSelect("inline", {
+                        "obestämd": filter("ind"),
+                        "bestämd": filter("def"),
+                    })),
+                    new FilterGroup("", new FilterSelect("inline", {
+                        "neutrum": filter("n"),
+                        "utrum": filter("u"),
+                        "maskulinum": filter("m"),
+                        "plural": filter("p"),
+                    })),
+                ]),
+                "oregelbundna": filter("!ind&!def&!namn"),
+                "namn": filter("namn"),
+            }),
+            GenFilter(),
+            filter("substantiv"),
+        ]),
+        "Adjektiv": new FilterSelect("row", {
+            "regelbundna adjektiv": new FilterAnd([
+                new FilterGroup("", new FilterSelect("inline", {
+                    "positiv": filter("pos"),
+                    "komparativ": filter("komp"),
+                    "superlativ": filter("super"),
+                    "presens particip": filter("prespart"),
+                    "perfekt particip": filter("perfpart"),
+                })),
+                filter("adjektiv"),
+            ]),
+            "oregelbundna adjektiv": filter("adjektiv&!pos&!komp&!super&!prespart&!perfpart"),
+            "adverb": filter("adverb"),
+        }),
+        "Verb": new FilterAnd([
+            new FilterGroup("", new FilterSelect("inline", {
+                "infinitiv": filter("inf"),
+                "presens": filter("pres"),
+                "preteritum": filter("pret"),
+                "supinum": filter("supin"),
+                "imperativ": filter("imper"),
+            })),
+            new FilterGroup("", new FilterSelect("inline", {
+                "aktiv": filter("aktiv"),
+                "passiv": filter("passiv"),
+                "deponens": filter("deponens"),
+                "konjunktiv": filter("konjunktiv"),
+            })),
+            filter("verb"),
+        ]),
+        "Pronomen": new FilterAnd([
+            new FilterGroup("", new FilterSelect("inline", {
+                "neutrum": filter("n"),
+                "utrum": filter("u"),
+                "maskulinum": filter("m"),
+                "plural": filter("p"),
+                "oklassificerat": filter("!n&!u&!m&!p"),
+            })),
+            new FilterGroup("", new FilterSelect("inline", {
+                "räkneord": filter("räkneord"),
+                "ej räkneord": filter("pronomen"),
+            })),
+            GenFilter(),
+        ]),
+        "Bindeord": new FilterSelect("row", {
+            "konjunktion": filter("konjunktion"),
+            "subjunktion": filter("subjunktion"),
+            "preposition": filter("preposition"),
+            "interjektion": filter("interjektion"),
+            "artikel": filter("artikel"),
+            "infinitivmärke": filter("infinitivmärke"),
+        }),
+        "Uttryck": filter("extra"),
+    }),
+    new FilterGroup("", new FilterSelect("inline", {
+        "flera ord": filter("fras&!sms&!slutled"),
+        "ett ord": filter("!fras&!sms&!slutled"),
+        "sammansättning": filter("sms|slutled"),
+    })),
+]);
+filterRoot.setId("", new Set());
+// TODO: check that default state doesn't filter anything out
+// TODO: filter by JS
+// TODO: filter by same/not same article
+// TODO remove FilterGroup?
+
+function createFilterBox(filter, index) {
+    const ch = document.createElement("div");
+    ch.classList.add("filter");
+    ch.append(filterRoot.render(filter));
+
+    const removeLink = document.createElement("a");
+    removeLink.classList.add("remove-filter-link");
+    removeLink.href = "#";
+    removeLink.textContent = "[x] ta bort";
+    removeLink.onclick = (e) => {
+        e.preventDefault();
+        filters.splice(index, 1);
+        updateFilterUI();
+    };
+    ch.appendChild(removeLink);
+    return ch;
+}
+
+function initDictMeta() {
+    if (!dictText || dictMeta.length > 0) return;
+    let inTags = true;
+    const t0 = performance.now();
+    const tags = {};
+    let wind = 0;
+    const lines = respText.split("\n"), le = lines.length;
+    respText = "";
+    let charIndex = 0;
+    for (let i = 0; i < le; i++) {
+        const line = lines[i];
+        if (!line) {
+            inTags = false;
+            continue;
+        } else if (inTags) {
+            const parts = line.split(" ");
+            const k = parts[0], enc = parts[1];
+            tags[k] = new Set(enc.split(","));
+        } else {
+            const parts = line.split(" ");
+            const w = parts[0];
+            const enc = parts[1].split(",");
+            const meta = [];
+            let cacheKey = "", le2 = enc.length;
+            for (let j = 0; j < le2; j++) {
+                const d = enc[j];
+                const sp = (d.charCodeAt(0) >= 97 ? 1 : 2);
+                const tagKey = d.slice(0, sp);
+                const windStr = d.slice(sp);
+                if (windStr)
+                    wind = +windStr;
+                meta.push({w: wind, t: tags[tagKey]});
+                if (windStr && cacheKey) cacheKey += "!";
+                cacheKey += tagKey;
+            }
+            while (dictMeta.length < charIndex) dictMeta.push(null);
+            dictMeta.push([cacheKey, meta]);
+            charIndex += w.length + 1;
+        }
+    }
+    const t1 = performance.now();
+    console.log("Meta parse time: " + (t1 - t0));
+}
+
+function updateFilterUI() {
+    initDictMeta();
+    filterCont.textContent = "";
+    for (let i = 0; i < filters.length; i++) {
+        filterCont.appendChild(createFilterBox(filters[i], i));
+    }
+    filterAdd.setAttribute("data-empty", filters.length === 0 ? "true" : "false");
+    search();
+}
+
+function matchesFilters(meta) {
+    for (const f of filters) {
+        let hasMatch = false;
+        for (const {w, t} of meta) {
+            if (filterRoot.matches(f, t)) {
+                hasMatch = true;
+                break;
+            }
+        }
+        if (!hasMatch) return false;
+    }
+    return true;
+}
+
+searchBox.oninput = () => { search(); };
+searchBox.onkeydown = (e) => {
+    if (e.which === 13) {
+        let el = document.createElement("a");
+        el.className = "hist";
+        el.href = "#";
+        el.textContent = searchBox.value;
+        const savedFilters = JSON.stringify(filters);
+        el.onclick = (e) => {
+            e.preventDefault();
+            searchBox.value = el.textContent;
+            filters = JSON.parse(savedFilters);
+            updateFilterUI();
+        };
+        history.appendChild(el);
+    }
+};
+
+filterAdd.onclick = (e) => {
+    e.preventDefault();
+    filters.push({});
+    updateFilterUI();
+};
+updateFilterUI();
+
+let xhr = new XMLHttpRequest();
+xhr.addEventListener("load", () => {
+    let inTags = true;
+    const dictWords = [];
+    const t0 = performance.now();
+    respText = xhr.responseText;
+    const lines = respText.split("\n"), le = lines.length;
+    for (let i = 0; i < le; i++) {
+        const line = lines[i];
+        if (!line) {
+            inTags = false;
+            continue;
+        } else if (!inTags) {
+            dictWords.push(line.split(" ")[0]);
+        }
+    }
+    dictText = dictWords.join("\n");
+    const t1 = performance.now();
+    console.log("Dict parse time: " + (t1 - t0));
+    searchBox.placeholder = "Skriv ett regex...";
+    search();
+});
+xhr.open("GET", "dict.txt");
+xhr.send();
+</script>
