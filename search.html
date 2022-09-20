@@ -362,8 +362,8 @@ const filterRoot = new FilterAnd([
                     }),
                     new FilterSelect("inline", {
                         "singular": new FilterSelect("paren", {
-                            "neutrum": filter("n"),
                             "utrum": filter("u"),
+                            "neutrum": filter("n"),
                             "maskulinum": filter("m"),
                         }),
                         "plural": filter("p"),
@@ -384,9 +384,26 @@ const filterRoot = new FilterAnd([
                     "presens particip": filter("prespart"),
                     "perfekt particip": filter("perfpart"),
                 }),
+                // These aren't actually orthogonal: "fina plural", "de fina pluralen",
+                // "det fina singularet" are valid, but not "ett fina singular"...
+                new FilterSelect("inline", {
+                    "obestämd": filter("ind"),
+                    "bestämd": filter("def"),
+                }),
+                new FilterSelect("inline", {
+                    "singular": new FilterSelect("paren", {
+                        "utrum": filter("u"),
+                        "neutrum": filter("n"),
+                        "maskulinum": filter("m"),
+                    }),
+                    "plural": filter("p"),
+                }),
                 filter("adjektiv"),
             ]),
-            "oregelbundna adjektiv": filter("adjektiv&!pos&!komp&!super&!prespart&!perfpart"),
+            "oregelbundna adjektiv": new FilterAnd([
+                filter("adjektiv"),
+                filter("!pos&!komp&!super&!prespart&!perfpart|!ind&!def|!u&!n&!m&!p|sms"),
+            ]),
             "adverb": filter("adverb"),
         }),
         "Verb": new FilterAnd([
@@ -407,8 +424,8 @@ const filterRoot = new FilterAnd([
         ]),
         "Pronomen": new FilterAnd([
             new FilterSelect("inline", {
-                "neutrum": filter("n"),
                 "utrum": filter("u"),
+                "neutrum": filter("n"),
                 "maskulinum": filter("m"),
                 "plural": filter("p"),
                 "oklassificerat": filter("!n&!u&!m&!p"),
