@@ -370,6 +370,7 @@ const GenFilter = () => new FilterSelect("inline", {
 const filterRoot = new FilterAnd([
     new FilterSelect("tab", {
         "Substantiv": new FilterAnd([
+            filter("substantiv"),
             new FilterSelect("row", {
                 "regelbundna": new FilterAnd([
                     new FilterSelect("inline", {
@@ -389,40 +390,40 @@ const filterRoot = new FilterAnd([
                 "namn": filter("namn"),
             }),
             GenFilter(),
-            filter("substantiv"),
         ]),
-        "Adjektiv": new FilterSelect("row", {
-            "regelbundna adjektiv": new FilterAnd([
-                new FilterSelect("inline", {
-                    "positiv": filter("pos"),
-                    "komparativ": filter("komp"),
-                    "superlativ": filter("super"),
-                    "presens particip": filter("prespart"),
-                    "perfekt particip": filter("perfpart"),
-                }),
-                // TODO: these aren't actually orthogonal: "fina plural", "de fina pluralen",
-                // "det fina singularet" are valid, but not "ett fina singular"...
-                new FilterSelect("inline", {
-                    "obestämd": filter("ind"),
-                    "bestämd": filter("def"),
-                }),
-                new FilterSelect("inline", {
-                    "singular": new FilterSelect("paren", {
-                        "utrum": filter("u"),
-                        "neutrum": filter("n"),
-                        "maskulinum": filter("m"),
+        "Adjektiv": new FilterAnd([
+            filter("adjektiv"),
+            new FilterSelect("row", {
+                "positiv": new FilterAnd([
+                    new FilterOr([
+                        new FilterSelect("inline", {
+                            "utrum": filter("u"),
+                            "neutrum": filter("n"),
+                            "bestämd / plural": filter("p|def&!m"),
+                            "bestämd maskulinum": filter("m"),
+                        }),
+                        filter("prespart"),
+                    ]),
+                    new FilterSelect("inline", {
+                        "adjektiv": filter("pos"),
+                        "perfekt particip": filter("perfpart"),
+                        "presens particip": filter("prespart"),
                     }),
-                    "plural": filter("p"),
-                }),
-                filter("adjektiv"),
-            ]),
-            "oregelbundna adjektiv": new FilterAnd([
-                filter("adjektiv"),
-                filter("!pos&!komp&!super&!prespart&!perfpart|!ind&!def|!u&!n&!m&!p|sms"),
-            ]),
-            "adverb": filter("adverb"),
-        }),
+                ]),
+                "komparativ": filter("komp"),
+                "superlativ": new FilterAnd([
+                    new FilterSelect("inline", {
+                        "obestämd": filter("ind"),
+                        "bestämd": filter("def"),
+                    }),
+                    filter("super"),
+                ]),
+                "oregelbundna adjektiv": filter("!pos&!komp&!super&!prespart&!perfpart|!ind&!def"),
+            }),
+        ]),
+        "Adverb": filter("adverb"),
         "Verb": new FilterAnd([
+            filter("verb"),
             new FilterSelect("inline", {
                 "infinitiv": filter("inf"),
                 "presens": filter("pres"),
@@ -436,7 +437,6 @@ const filterRoot = new FilterAnd([
                 "passiv": filter("passiv"),
                 "konjunktiv": filter("konjunktiv"),
             }),
-            filter("verb"),
         ]),
         "Pronomen": new FilterAnd([
             new FilterSelect("inline", {
@@ -447,8 +447,8 @@ const filterRoot = new FilterAnd([
                 "oklassificerat": filter("!n&!u&!m&!p"),
             }),
             new FilterSelect("inline", {
-                "räkneord": filter("räkneord"),
                 "ej räkneord": filter("pronomen"),
+                "räkneord": filter("räkneord"),
             }),
             GenFilter(),
         ]),
