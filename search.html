@@ -264,6 +264,7 @@ class FilterSelect {
         const node = document.createElement("div");
         node.classList.add("filter-sel", this.cls);
         const caseNodes = {};
+        const checkboxNodes = {};
         for (const opt in this.cases) {
             const x = this.cases[opt];
             const caseId = this.getId(opt);
@@ -280,15 +281,28 @@ class FilterSelect {
                 this.updateStyle(state, caseNodes);
                 search();
             };
+            label.oncontextmenu = e => {
+                // right click inverts all other options
+                e.preventDefault();
+                for (let opt2 in checkboxNodes) {
+                    if (opt2 === opt) continue;
+                    const caseId2 = this.getId(opt2);
+                    const box2 = checkboxNodes[opt2];
+                    box2.checked = !box2.checked;
+                    if (box2.checked) state[caseId2] = 1;
+                    else delete state[caseId2];
+                }
+                this.updateStyle(state, caseNodes);
+                search();
+            };
             label.append(checkbox, opt);
-            option.append(label);
             const content = document.createElement("div");
             content.classList.add("filter-sel-cont", this.cls);
-            const subNode = x.render(state);
-            content.append(subNode);
-            option.append(content);
+            content.append(x.render(state));
+            option.append(label, content);
             node.append(option);
             caseNodes[opt] = option;
+            checkboxNodes[opt] = checkbox;
         }
         this.updateStyle(state, caseNodes);
         return node;
@@ -476,7 +490,6 @@ const filterRoot = new FilterAnd([
     ),
 ]);
 filterRoot.setId("", new Set());
-// TODO: filter by JS
 
 function createFilterBox(filter, index) {
     const ch = document.createElement("div");
