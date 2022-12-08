@@ -284,7 +284,7 @@ class FilterSelect {
             label.oncontextmenu = e => {
                 // right click inverts all other options
                 e.preventDefault();
-                for (let opt2 in checkboxNodes) {
+                for (const opt2 in checkboxNodes) {
                     if (opt2 === opt) continue;
                     const caseId2 = this.getId(opt2);
                     const box2 = checkboxNodes[opt2];
@@ -510,7 +510,7 @@ function createFilterBox(filter, index) {
 }
 
 function initDictMeta() {
-    if (!dictText || dictMeta.length > 0) return;
+    if (!dictText || dictMeta.length > 0 || !filters.length) return;
     let inTags = true;
     const t0 = performance.now();
     const tags = {};
@@ -631,6 +631,7 @@ xhr.addEventListener("load", () => {
         }
     }
     dictText = dictWords.join("\n");
+    updateFilterUI();
     const t1 = performance.now();
     console.log("Dict parse time: " + (t1 - t0));
     searchBox.placeholder = "Skriv ett regex...";
