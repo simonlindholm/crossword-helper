@@ -6,6 +6,10 @@ import subprocess
 import sys
 
 DEFAULT_CONTEXT = 50
+SENTENCE_SEPARATORS = set(".?!")
+DIM = "\033[90m"  # "\033[2m"
+RESET = "\033[0m"
+COLOR = "\033[91m"
 
 def main():
     dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -122,7 +126,25 @@ def main():
                 if args.hidden == 2 and " " not in word:
                     continue
             if use_color:
-                word = "\033[91m" + word + "\033[0m"
+                word = COLOR + word + RESET
+                before_sep = next(
+                    (
+                        len(context_before) - i
+                        for i, c in enumerate(reversed(context_before))
+                        if c in SENTENCE_SEPARATORS
+                    ),
+                    0
+                )
+                after_sep = next(
+                    (
+                        i + 1
+                        for i, c in enumerate(context_after)
+                        if c in SENTENCE_SEPARATORS
+                    ),
+                    len(context_after)
+                )
+                context_before = DIM + context_before[:before_sep] + RESET + context_before[before_sep:]
+                context_after = context_after[:after_sep] + DIM + context_after[after_sep:] + RESET
             print(context_before + word + context_after)
 
 try:
