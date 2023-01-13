@@ -129,9 +129,10 @@ def main():
                 word = COLOR + word + RESET
                 before_sep = next(
                     (
-                        len(context_before) - i
-                        for i, c in enumerate(reversed(context_before))
-                        if c in SENTENCE_SEPARATORS
+                        i + 1
+                        for i in range(len(context_before) - 1, 0, -1)
+                        if context_before[i] == ' '
+                        and context_before[i - 1] in SENTENCE_SEPARATORS
                     ),
                     0
                 )
@@ -140,6 +141,7 @@ def main():
                         i + 1
                         for i, c in enumerate(context_after)
                         if c in SENTENCE_SEPARATORS
+                        and (i + 1 == len(context_after) or context_after[i+1] == ' ')
                     ),
                     len(context_after)
                 )
