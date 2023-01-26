@@ -114,7 +114,7 @@ const history = document.getElementById("history");
 const resultsArea = document.getElementById("results");
 let maxResults = 1000;
 let filters = [];
-let dictWords, dictText, respText;
+let dictWords, dictPretties, respText;
 const dictMeta = [];
 
 function doSearch(query, callback) {
@@ -159,17 +159,17 @@ function doSearch(query, callback) {
                 if (!matches) continue;
             }
         }
-        if (callback(w)) break;
+        if (callback(w, dictPretties[i])) break;
     }
 }
 
 function search() {
-    if (!dictText) return;
+    if (!dictWords) return;
     const t0 = performance.now();
     const query = searchBox.value.toLowerCase().replace(/%/g, ".*");
     resultsArea.textContent = "";
     let numResults = 0;
-    doSearch(query, res => {
+    doSearch(query, (compact, pretty) => {
         if (numResults === maxResults) {
             let el = document.createElement("a");
             el.textContent = "Fler...";
@@ -184,7 +184,7 @@ function search() {
         }
         const row = document.createElement("div");
         const el = document.createElement("span");
-        el.textContent = res;
+        el.textContent = pretty;
         row.append(el);
         resultsArea.append(row);
         numResults++;
@@ -510,7 +510,7 @@ function createFilterBox(filter, index) {
 }
 
 function initDictMeta() {
-    if (!dictText || dictMeta.length > 0 || !filters.length) return;
+    if (!dictWords || dictMeta.length > 0 || !filters.length) return;
     let inTags = true;
     const t0 = performance.now();
     const tags = {};
@@ -618,6 +618,7 @@ let xhr = new XMLHttpRequest();
 xhr.addEventListener("load", () => {
     let inTags = true;
     dictWords = [];
+    dictPretties = [];
     const t0 = performance.now();
     respText = xhr.responseText;
     const lines = respText.split("\n"), le = lines.length;
@@ -627,10 +628,11 @@ xhr.addEventListener("load", () => {
             inTags = false;
             continue;
         } else if (!inTags) {
-            dictWords.push(line.split("\t")[0]);
+            const parts = line.split("\t");
+            dictWords.push(parts[0]);
+            dictPretties.push(parts[parts.length * 2 - 4]); // 3 -> 2, 2 -> 0
         }
     }
-    dictText = dictWords.join("\n");
     updateFilterUI();
     const t1 = performance.now();
     console.log("Dict parse time: " + (t1 - t0));
