@@ -524,11 +524,11 @@ function initDictMeta() {
             inTags = false;
             continue;
         } else if (inTags) {
-            const parts = line.split(" ");
+            const parts = line.split("\t");
             const k = parts[0], enc = parts[1];
             tags[k] = new Set(enc.split(","));
         } else {
-            const parts = line.split(" ");
+            const parts = line.split("\t");
             const w = parts[0];
             const enc = parts[1].split(",");
             const meta = [];
@@ -627,7 +627,7 @@ xhr.addEventListener("load", () => {
             inTags = false;
             continue;
         } else if (!inTags) {
-            dictWords.push(line.split(" ")[0]);
+            dictWords.push(line.split("\t")[0]);
         }
     }
     dictText = dictWords.join("\n");
