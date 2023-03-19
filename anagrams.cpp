@@ -333,21 +333,30 @@ DS buildDS(const string& dictFilename, const string& freqFilename) {
 	array<int, ALPHA> letterFreq{};
 	array<int, ALPHA> letterOrder{};
 	iota(letterOrder.begin(), letterOrder.end(), 0);
+	while (getline(fin, line) && !line.empty())
+		;
 	while (getline(fin, line)) {
-		size_t ind = line.find(' ');
+		size_t ind = line.find('\t');
+		assert(ind != string::npos);
 		string word = internalForm(line.substr(0, ind), letterOrder, false);
 		for (int c : word)
 			letterFreq[c]++;
-		if (ind != string::npos) {
-			line = line.substr(ind + 1);
+		size_t ind2 = line.find('\t', ind + 1);
+		string nice;
+		if (ind2 != string::npos) {
+			nice = line.substr(ind2 + 1);
+		} else {
+			nice = line.substr(0, ind);
 		}
-		auto it = freqs.find(line);
+		if (nice.find(' ') != string::npos)
+			continue;
+		auto it = freqs.find(nice);
 		int freq = (it != freqs.end() ? it->second : 0);
 		if (freq > 0xffff) freq = 0xffff;
 		Word w{(uint32_t) wordlist.size()};
 		wordlist += (char)(freq >> 8);
 		wordlist += (char)(freq & 255);
-		wordlist += line;
+		wordlist += nice;
 		wordlist += '\0';
 		lookup[word].push_back(w);
 	}
