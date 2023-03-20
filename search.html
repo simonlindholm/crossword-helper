@@ -478,9 +478,13 @@ const filterRoot = new FilterAnd([
         "Uttryck": filter("extra"),
     }),
     new FilterSelect("inline", {
-        "flera ord": filter("fras&!sms&!slutled"),
-        "ett ord": filter("!fras&!sms&!slutled"),
-        "sammansättning": filter("sms|slutled"),
+        "flera ord": filter("fras&!prefix&!suffix"),
+        "ett ord": filter("!fras&!prefix&!suffix"),
+        "sammansättning": filter("prefix|suffix"),
+    }),
+    new FilterSelect("inline", {
+        "sammansatt": filter("sms"),
+        "ej sammansatt": filter("!sms"),
     }),
     new ConditionalFilter(
         "notfirst",
