@@ -51,6 +51,7 @@ print("Content-Type: text/html; charset=utf-8")
 print()
 print("""
 <!DOCTYPE html>
+<!-- https://github.com/simonlindholm/crossword-tools -->
 <html>
 <head>
 <style>
