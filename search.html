@@ -533,7 +533,7 @@ const filterRoot = new FilterAnd([
     new FilterSelect("inline", {
         "flera ord": filter("fras&!prefix&!suffix"),
         "ett ord": filter("!fras&!prefix&!suffix"),
-        "sammansättning": filter("prefix|suffix"),
+        "ordled": filter("prefix|suffix"),
     }),
     new FilterSelect("inline", {
         "sammansatt": filter("sms"),
