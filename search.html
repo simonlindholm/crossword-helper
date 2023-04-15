@@ -3,13 +3,50 @@
 <meta charset=utf-8>
 <title>Sök ord</title>
 <style>
+body {
+    margin: 0;
+}
+main {
+    display: flow-root;
+    min-height: 100vh;
+    padding: 8px;
+    box-sizing: border-box;
+}
+footer {
+    position: relative;
+}
+#footercont {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    text-align: right;
+}
+#aboutcont:not(.visible) {
+    display: none;
+}
+#aboutcont {
+    border: 1px solid black;
+    padding-right: 20px;
+    margin-bottom: 2px;
+    text-align: left;
+}
 #cont1 {
     float: left;
 }
 #cont2 {
-    float: left;
     padding: 10px;
+}
+#history:empty {
+    display: none;
+}
+.filter, #history, #filterbox {
+    float: left;
+    margin-left: 10px;
+    margin-bottom: 10px;
     font: 16px dejavu serif, serif;
+}
+#filterbox {
+    margin-top: 10px;
 }
 #results {
     border: 1px solid black;
@@ -25,12 +62,13 @@
 }
 #history {
     font: 15px monospace;
+    padding-top: 10px;
 }
 #filteradd[data-empty=true] > .nonempty,
 #filteradd[data-empty=false] > .empty {
     display: none;
 }
-#filteradd {
+#filteradd, #aboutlink {
     color: inherit;
 }
 #searchbox {
@@ -89,28 +127,43 @@
     content: ")";
 }
 </style>
-
+<main>
 <div id="cont1">
 <input id="searchbox" autofocus placeholder="Laddar...">
 <div id="results"></div>
 </div>
-<div id="cont2">
-<div id="filterbox">
-    <div id="filtercont"></div>
-    <a id="filteradd" href="#">
-        <span class="empty">Filtrera...</span>
-        <span class="nonempty">och kräv även...</span>
-    </a>
-</div>
-<!-- <code>%</code> är förkortning för <code>.*</code> ; enter lägger till i historik. -->
 <div id="history"></div>
+<div id="filtercont"></div>
+<div id="filterbox">
+    <a id="filteradd" href="#"
+        ><span class="empty">Filtrera...</span
+        ><span class="nonempty">och kräv även...</span
+    ></a>
 </div>
+</main>
+<footer>
+<div id="footercont">
+<div id="aboutcont">
+    <ul>
+        <li><code>%</code> är förkortning för <code>.*</code>
+        <li>enter lägger till i tillfällig historik
+        <li>klicka på ord för att slå upp i SAOL
+        <li><a href="https://github.com/simonlindholm/crossword-tools">GitHub</a>
+    </ul>
+</div>
+<a id="aboutlink" href="#">
+    Om...
+</a>
+</div>
+</footer>
 
 <script>
 "use strict";
 const searchBox = document.getElementById("searchbox");
 const filterCont = document.getElementById("filtercont");
 const filterAdd = document.getElementById("filteradd");
+const aboutLink = document.getElementById("aboutlink");
+const aboutCont = document.getElementById("aboutcont");
 const history = document.getElementById("history");
 const resultsArea = document.getElementById("results");
 let maxResults = 1000;
@@ -618,6 +671,11 @@ filterAdd.onclick = (e) => {
     updateFilterUI();
 };
 updateFilterUI();
+
+aboutLink.onclick = (e) => {
+    e.preventDefault();
+    aboutCont.classList.toggle("visible");
+};
 
 let xhr = new XMLHttpRequest();
 xhr.addEventListener("load", () => {
