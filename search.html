@@ -71,6 +71,18 @@ footer {
 #filteradd, #aboutlink {
     color: inherit;
 }
+#persistitem {
+    display: none;
+}
+body.loaded #persistitem {
+    display: list-item;
+}
+body.loaded #persistitem:not([data-persisted]) {
+    display: none;
+}
+#persistitem[data-persisted=false] > #persistlink > #ispersisted {
+    display: none;
+}
 #searchbox {
     border: 1px solid black;
     padding: 10px;
@@ -149,6 +161,7 @@ footer {
         <li>enter lägger till i tillfällig historik
         <li>klicka på ord för att slå upp i SAOL
         <li><a href="https://github.com/simonlindholm/crossword-tools">GitHub</a>
+        <li id="persistitem"><a id="persistlink" href="#"><span id="ispersisted">sluta </span>lagra ordlista lokalt</a>
     </ul>
 </div>
 <a id="aboutlink" href="#">
@@ -163,6 +176,8 @@ const searchBox = document.getElementById("searchbox");
 const filterCont = document.getElementById("filtercont");
 const filterAdd = document.getElementById("filteradd");
 const aboutLink = document.getElementById("aboutlink");
+const persistLink = document.getElementById("persistlink");
+const persistItem = document.getElementById("persistitem");
 const aboutCont = document.getElementById("aboutcont");
 const history = document.getElementById("history");
 const resultsArea = document.getElementById("results");
@@ -574,7 +589,6 @@ function initDictMeta() {
     const tags = {};
     let wind = 0;
     const lines = respText.split("\n"), le = lines.length;
-    respText = "";
     let charIndex = 0;
     for (let i = 0; i < le; i++) {
         const line = lines[i];
@@ -677,14 +691,13 @@ aboutLink.onclick = (e) => {
     aboutCont.classList.toggle("visible");
 };
 
-let xhr = new XMLHttpRequest();
-xhr.addEventListener("load", () => {
+function onLoad(text) {
     let inTags = true;
     dictWords = [];
     dictPretties = [];
     const t0 = performance.now();
-    respText = xhr.responseText;
-    const lines = respText.split("\n"), le = lines.length;
+    respText = text;
+    const lines = text.split("\n"), le = lines.length;
     for (let i = 0; i < le; i++) {
         const line = lines[i];
         if (!line) {
@@ -699,9 +712,69 @@ xhr.addEventListener("load", () => {
     updateFilterUI();
     const t1 = performance.now();
     console.log("Dict parse time: " + (t1 - t0));
+    document.body.classList.add("loaded");
     searchBox.placeholder = "Skriv ett regex...";
     search();
-});
-xhr.open("GET", "dict.txt");
-xhr.send();
+}
+
+let hasStartedXhr = false;
+function xhrLoad() {
+    if (hasStartedXhr) return;
+    hasStartedXhr = true;
+    console.log("Loading dict via XHR");
+    let xhr = new XMLHttpRequest();
+    xhr.addEventListener("load", () => {
+        onLoad(xhr.responseText);
+    });
+    xhr.open("GET", "dict.txt");
+    xhr.send();
+}
+
+(() => {
+    let request = indexedDB.open("DictSearch", 1);
+    request.onerror = xhrLoad;
+    request.onupgradeneeded = () => {
+        let db = request.result;
+        db.createObjectStore("dict", { keyPath: "id" });
+    };
+    request.onsuccess = () => {
+        let db = request.result;
+        db.onerror = xhrLoad;
+        let req = db.transaction(["dict"], "readonly")
+            .objectStore("dict")
+            .get(0);
+        req.onsuccess = event => {
+            let isPersisted;
+            function setPersisted(val) {
+                isPersisted = val;
+                persistItem.setAttribute("data-persisted", "" + val);
+            }
+
+            persistLink.onclick = (event) => {
+                event.preventDefault();
+                if (isPersisted) {
+                    setPersisted(false);
+                    db.transaction(["dict"], "readwrite")
+                        .objectStore("dict")
+                        .delete(0);
+                } else {
+                    setPersisted(true);
+                    db.transaction(["dict"], "readwrite")
+                        .objectStore("dict")
+                        .put({"id": 0, value: respText});
+                }
+            };
+
+            let result = event.target.result;
+            if (result) {
+                setPersisted(true);
+                console.log("Loaded dict via IndexedDB");
+                onLoad(result.value);
+            } else {
+                setPersisted(false);
+                xhrLoad();
+            }
+        };
+    };
+})();
 </script>
