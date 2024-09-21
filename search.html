@@ -64,12 +64,24 @@ footer {
     font: 15px monospace;
     padding-top: 10px;
 }
-#filteradd[data-empty=true] > .nonempty,
-#filteradd[data-empty=false] > .empty {
+#filterbox[data-empty=true] .nonempty,
+#filterbox[data-empty=false] .empty {
     display: none;
 }
-#filteradd, #aboutlink {
+#filteradd, #filterjslink, #aboutlink {
     color: inherit;
+}
+#filterbox[data-empty=true] > #filterjs {
+    display: none;
+}
+#filterbox[data-empty=false] > #filterjs {
+    display: block;
+}
+#filterbox[data-filterjsvisible=false] #filterjs2 {
+    display: none;
+}
+#filterjsinput[data-valid=false] {
+    background-color: pink;
 }
 #persistitem {
     display: none;
@@ -83,7 +95,7 @@ body.loaded #persistitem:not([data-persisted]) {
 #persistitem[data-persisted=false] > #persistlink > #ispersisted {
     display: none;
 }
-#searchbox {
+#searchbox, #filterbox input {
     border: 1px solid black;
     padding: 10px;
     width: 200px;
@@ -151,6 +163,18 @@ body.loaded #persistitem:not([data-persisted]) {
         ><span class="empty">Filtrera...</span
         ><span class="nonempty">och kräv även...</span
     ></a>
+    <div id="filterjs">
+        <a id="filterjslink" href="#">JS-filter...</a>
+        <div id="filterjs2">
+            <input id="filterjsinput" placeholder='w[0] == "a"'>
+            <p>
+            <ul>
+                <li><code>w</code> representerar ordet som ska testas om det matchar
+                <li><code>dict</code> är ett objekt som har alla ord som nycklar
+            </ul>
+            </p>
+        </a>
+    </div>
 </div>
 </main>
 <footer>
@@ -174,7 +198,10 @@ body.loaded #persistitem:not([data-persisted]) {
 "use strict";
 const searchBox = document.getElementById("searchbox");
 const filterCont = document.getElementById("filtercont");
+const filterBox = document.getElementById("filterbox");
 const filterAdd = document.getElementById("filteradd");
+const filterJsLink = document.getElementById("filterjslink");
+const filterJsInput = document.getElementById("filterjsinput");
 const aboutLink = document.getElementById("aboutlink");
 const persistLink = document.getElementById("persistlink");
 const persistItem = document.getElementById("persistitem");
@@ -183,12 +210,14 @@ const history = document.getElementById("history");
 const resultsArea = document.getElementById("results");
 let maxResults = 1000;
 let filters = [];
+let filterJs = "";
+let filterJsFn = null;
+let hasFilterJs = false;
 let dictWords, dictPretties, respText;
 const dictMeta = [];
 
 function doSearch(query, callback) {
     if (!query) return;
-    const noFilterMatchCache = {};
     const filterCache = {};
     const filter = "^(?:" + query + ")$";
     let numResults = 0;
@@ -201,8 +230,12 @@ function doSearch(query, callback) {
         }
     }
 
-    const hasFilters = filters.length > 0;
-    const emptyFilters = JSON.stringify(filters) === "[]";
+    const emptyFilters = !filters.length || JSON.stringify(filters) === "[{}]";
+    const hasFilters = !!filterJs || (filters.length > 0 && !emptyFilters);
+    if (hasFilters) initDictMeta();
+    if (filterJs) initJsDict();
+
+    if (filterJs && !filterJsFn) return;
 
     const len = dictWords.length;
     for (let i = 0; i < len; i++) {
@@ -213,20 +246,16 @@ function doSearch(query, callback) {
         if (hasFilters) {
             const meta = dictMeta[i];
             const key = meta[0];
-            if (key in noFilterMatchCache) continue;
-            else {
-                let matches = filterCache[key];
-                if (matches === undefined) {
-                    // (~30ms in here)
-                    matches = matchesFilters(meta[1]);
-                    filterCache[key] = matches;
-                    if (!matches) {
-                        if (emptyFilters) console.log("Empty filter failed to match:", w, key);
-                        noFilterMatchCache[key] = true;
-                    }
-                }
+            let matches = filterCache[key];
+            if (matches === false) continue;
+            if (matches === undefined) {
+                // (~30ms in here)
+                matches = matchesFilters(meta[1]);
+                if (!matches && emptyFilters) console.log("Empty filter failed to match:", w, key);
+                filterCache[key] = matches;
                 if (!matches) continue;
             }
+            if (filterJs && !filterJsFn(w)) continue;
         }
         if (callback(w, dictPretties[i])) break;
     }
@@ -583,7 +612,7 @@ function createFilterBox(filter, index) {
 }
 
 function initDictMeta() {
-    if (!dictWords || dictMeta.length > 0 || !filters.length) return;
+    if (!dictWords || dictMeta.length > 0 || !(filters.length > 0 || hasFilterJs)) return;
     let inTags = true;
     const t0 = performance.now();
     const tags = {};
@@ -623,16 +652,58 @@ function initDictMeta() {
     console.log("Meta parse time: " + (t1 - t0));
 }
 
-function updateFilterUI() {
+function initJsDict() {
+    if (!hasFilterJs || window.dict) return;
     initDictMeta();
+    if (!dictMeta) return;
+    window.dict = Object.create(null);
+    const len = dictWords.length;
+    const t0 = performance.now();
+    for (let i = 0; i < len; i++) {
+        let w = dictWords[i];
+        let meta = dictMeta[i][1];
+        window.dict[w] = meta;
+    }
+    const t1 = performance.now();
+    console.log("JS dict creation time: " + (t1 - t0));
+}
+
+function updateFilterUI() {
+    // Initialize expensive data structures in the background.
+    // (We also do this on demand where needed.)
+    setTimeout(() => {
+        initDictMeta();
+        initJsDict();
+    });
     filterCont.textContent = "";
     for (let i = 0; i < filters.length; i++) {
         if (i === 0) delete filters[i].notfirst;
         else filters[i].notfirst = 1;
         filterCont.appendChild(createFilterBox(filters[i], i));
     }
-    filterAdd.setAttribute("data-empty", filters.length === 0 ? "true" : "false");
+    filterJsInput.value = filterJs;
+    filterBox.setAttribute("data-empty", filters.length === 0 ? "true" : "false");
+    filterBox.setAttribute("data-filterjsvisible", hasFilterJs ? "true" : "false");
     search();
+}
+
+function setFilterJs(filter) {
+    filterJs = filter;
+    let valid = true;
+    let error = "";
+    if (filterJs) {
+        initJsDict();
+        try {
+            filterJsFn = eval("w => (" + filterJs + ")");
+            filterJsFn("a");
+        } catch (e) {
+            filterJsFn = null;
+            valid = false;
+            error = e.message || "";
+        }
+    }
+    filterJsInput.setAttribute("data-valid", valid ? "true" : "false");
+    filterJsInput.title = error;
 }
 
 function matchesFilters(meta) {
@@ -662,11 +733,17 @@ searchBox.onkeydown = (e) => {
         el.className = "hist";
         el.href = "#";
         el.textContent = searchBox.value;
-        const savedFilters = JSON.stringify(filters);
+        const savedFilters = JSON.stringify({
+            filters,
+            filterJs,
+        });
         el.onclick = (e) => {
             e.preventDefault();
             searchBox.value = el.textContent;
-            filters = JSON.parse(savedFilters);
+            const saved = JSON.parse(savedFilters);
+            filters = saved.filters;
+            setFilterJs(saved.filterJs);
+            hasFilterJs = !!filterJs;
             updateFilterUI();
         };
         history.appendChild(el);
@@ -683,6 +760,17 @@ filterAdd.onclick = (e) => {
     e.preventDefault();
     filters.push({});
     updateFilterUI();
+};
+filterJsLink.onclick = (e) => {
+    e.preventDefault();
+    hasFilterJs = !hasFilterJs;
+    setFilterJs("");
+    updateFilterUI();
+    if (hasFilterJs) filterJsInput.focus();
+};
+filterJsInput.oninput = () => {
+    setFilterJs(filterJsInput.value);
+    search();
 };
 updateFilterUI();
 
